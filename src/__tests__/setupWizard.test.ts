@@ -41,6 +41,17 @@ describe('SetupWizard utilities', () => {
       expect(config.useAliases).toBe(true);
       expect(config.dryRun).toBe(false);
       expect(config.verbose).toBe(false);
+      expect(config.report).toBe('none');
+    });
+
+    it('should accept report format option', () => {
+      const config = generateConfig({ extensions: ['.ts'], ignore: [], useAliases: true, report: 'md' });
+      expect(config.report).toBe('md');
+    });
+
+    it('should default report to none when not provided', () => {
+      const config = generateConfig({ extensions: ['.ts'], ignore: [], useAliases: true });
+      expect(config.report).toBe('none');
     });
 
     it('should include default ignore patterns', () => {
@@ -106,7 +117,7 @@ describe('SetupWizard utilities', () => {
     it('should read package.json from project root', async () => {
       const pkg = await readPackageJson(path.resolve('.'));
       expect(pkg).not.toBeNull();
-      expect(pkg!.name).toBe('auto-import-cli');
+      expect(pkg!.name).toBe('import-pilot');
     });
 
     it('should return null for directory without package.json', async () => {

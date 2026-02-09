@@ -1,11 +1,11 @@
-# auto-import-cli
+# import-pilot
 
 <div align="center">
 
 **Stop adding imports by hand. Let the CLI do it.**
 
 [![CI](https://github.com/YosefHayim/auto-import-cli/workflows/CI%20-%20Test%20&%20Build/badge.svg)](https://github.com/YosefHayim/auto-import-cli/actions)
-[![npm](https://img.shields.io/npm/v/auto-import-cli.svg?style=flat-square)](https://www.npmjs.com/package/auto-import-cli)
+[![npm](https://img.shields.io/npm/v/import-pilot.svg?style=flat-square)](https://www.npmjs.com/package/import-pilot)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 
 </div>
@@ -16,7 +16,7 @@
 
 You write `<Card>` or `formatName()` in your code, but the import is missing. Your editor might catch it — or it might not. In large codebases with hundreds of components, this becomes a constant friction point.
 
-**auto-import-cli** scans your project, finds every missing import, resolves where it lives, and inserts the correct `import` statement. It works across frameworks (React, Vue, Angular, Svelte, Astro) and languages (TypeScript, JavaScript, Python), respects your `tsconfig.json` path aliases, and runs in under a second.
+**import-pilot** scans your project, finds every missing import, resolves where it lives, and inserts the correct `import` statement. It works across frameworks (React, Vue, Angular, Svelte, Astro) and languages (TypeScript, JavaScript, Python), respects your `tsconfig.json` path aliases, and runs in under a second.
 
 ---
 
@@ -26,22 +26,22 @@ Pick your package manager:
 
 ```bash
 # npm
-npm install -g auto-import-cli
+npm install -g import-pilot
 
 # yarn
-yarn global add auto-import-cli
+yarn global add import-pilot
 
 # pnpm
-pnpm add -g auto-import-cli
+pnpm add -g import-pilot
 
 # bun
-bun add -g auto-import-cli
+bun add -g import-pilot
 ```
 
 Or install locally as a dev dependency:
 
 ```bash
-npm install --save-dev auto-import-cli
+npm install --save-dev import-pilot
 ```
 
 **Requires Node.js >= 18**
@@ -52,21 +52,21 @@ npm install --save-dev auto-import-cli
 
 ```bash
 # Fix missing imports in current directory
-auto-import
+import-pilot
 
 # Preview what would change (no file modifications)
-auto-import --dry-run
+import-pilot --dry-run
 
 # Scan a specific directory with verbose output
-auto-import ./src --verbose
+import-pilot ./src --verbose
 ```
 
 ### Interactive Setup
 
-Run the setup wizard to configure auto-import for your project. It detects your file types, creates a `.auto-import.json` config, adds npm scripts, and optionally sets up husky pre-commit hooks — all interactively.
+Run the setup wizard to configure import-pilot for your project. It detects your file types, creates a `.import-pilot.json` config, adds npm scripts, and optionally sets up husky pre-commit hooks — all interactively.
 
 ```bash
-auto-import init
+import-pilot init
 ```
 
 ---
@@ -100,10 +100,25 @@ More languages coming — see [open issues](https://github.com/YosefHayim/auto-i
 
 ---
 
+## Reports
+
+After each run, import-pilot can generate a report file at your project root. Configure via `.import-pilot.json` or the setup wizard.
+
+| Format | Flag | Output file |
+|--------|------|-------------|
+| Markdown | `--report md` | `import-pilot-report.md` |
+| JSON | `--report json` | `import-pilot-report.json` |
+| Text | `--report txt` | `import-pilot-report.txt` |
+| Off | `--report none` | *(no file)* |
+
+Reports include: time taken, files scanned, files changed, each import added (before → after), and any unresolved identifiers.
+
+---
+
 ## CLI Options
 
 ```
-auto-import [directory] [options]
+import-pilot [directory] [options]
 ```
 
 | Option | Short | Description | Default |
@@ -112,20 +127,21 @@ auto-import [directory] [options]
 | `--verbose` | `-v` | Detailed output | `false` |
 | `--extensions` | `-e` | File extensions to scan (comma-separated) | `.ts,.tsx,.js,.jsx,.vue,.svelte,.astro,.py` |
 | `--ignore` | `-i` | Glob patterns to ignore (comma-separated) | — |
-| `--config` | `-c` | Path to config file | `.auto-import.json` |
+| `--config` | `-c` | Path to config file | `.import-pilot.json` |
 | `--no-alias` | — | Disable tsconfig path alias resolution | `false` |
+| `--report` | `-r` | Report format: `md`, `json`, `txt`, or `none` | `none` |
 
 ### Subcommands
 
 | Command | Description |
 |---------|-------------|
-| `auto-import init` | Interactive setup wizard |
+| `import-pilot init` | Interactive setup wizard |
 
 ---
 
 ## Configuration
 
-Create `.auto-import.json` in your project root (or run `auto-import init`):
+Create `.import-pilot.json` in your project root (or run `import-pilot init`):
 
 ```json
 {
@@ -133,7 +149,8 @@ Create `.auto-import.json` in your project root (or run `auto-import init`):
   "ignore": ["**/node_modules/**", "**/dist/**", "**/*.test.ts"],
   "useAliases": true,
   "verbose": false,
-  "dryRun": false
+  "dryRun": false,
+  "report": "md"
 }
 ```
 
@@ -148,9 +165,9 @@ CLI flags override config file values.
 ```json
 {
   "scripts": {
-    "auto-import": "auto-import",
-    "auto-import:check": "auto-import --dry-run --verbose",
-    "auto-import:fix": "auto-import"
+    "import-pilot": "import-pilot",
+    "import-pilot:check": "import-pilot --dry-run --verbose",
+    "import-pilot:fix": "import-pilot"
   }
 }
 ```
@@ -158,16 +175,16 @@ CLI flags override config file values.
 ### Pre-commit hook (husky)
 
 ```bash
-npx husky add .husky/pre-commit "npx auto-import --dry-run"
+npx husky add .husky/pre-commit "npx import-pilot --dry-run"
 ```
 
-Or let `auto-import init` set this up for you.
+Or let `import-pilot init` set this up for you.
 
 ### CI
 
 ```yaml
 - name: Check imports
-  run: npx auto-import --dry-run --verbose
+  run: npx import-pilot --dry-run --verbose
 ```
 
 ---

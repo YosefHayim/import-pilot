@@ -8,6 +8,7 @@ export interface AutoImportConfig {
   useAliases: boolean;
   verbose: boolean;
   dryRun: boolean;
+  report: 'md' | 'json' | 'txt' | 'none';
 }
 
 const DEFAULT_IGNORE = [
@@ -65,6 +66,7 @@ export function generateConfig(options: {
   extensions: string[];
   ignore: string[];
   useAliases: boolean;
+  report?: 'md' | 'json' | 'txt' | 'none';
 }): AutoImportConfig {
   return {
     extensions: options.extensions,
@@ -72,6 +74,7 @@ export function generateConfig(options: {
     useAliases: options.useAliases,
     verbose: false,
     dryRun: false,
+    report: options.report ?? 'none',
   };
 }
 

@@ -6,6 +6,8 @@ import { FileScanner } from '@/scanner/fileScanner.js';
 import { ImportResolver } from '@/resolver/importResolver.js';
 import type { LanguagePlugin } from '@/plugins/languagePlugin.js';
 import { getPluginForExtension, getDefaultPlugins, getAllExtensions } from '@/plugins/index.js';
+import type { ReportFormat, ReportEntry, ReportData } from '@/reporter/reportGenerator.js';
+import { writeReport } from '@/reporter/reportGenerator.js';
 
 export interface CliOptions {
   dryRun?: boolean;
@@ -14,6 +16,7 @@ export interface CliOptions {
   extensions?: string;
   ignore?: string;
   noAlias?: boolean;
+  report?: string;
 }
 
 export interface MissingImport {
@@ -36,7 +39,8 @@ export class AutoImportCli {
   }
 
   async run(directory: string, options: CliOptions = {}): Promise<void> {
-    console.log(chalk.blue('🔍 Auto Import CLI'));
+    const startTime = Date.now();
+    console.log(chalk.blue('🔍 Import Pilot'));
     console.log(chalk.gray(`Scanning directory: ${directory}\n`));
 
     const projectRoot = path.resolve(directory);
@@ -68,6 +72,7 @@ export class AutoImportCli {
     console.log(chalk.gray(`Found ${files.length} files to analyze\n`));
 
     const allMissingImports: MissingImport[] = [];
+    const reportEntries: ReportEntry[] = [];
     let filesWithIssues = 0;
 
     for (const file of files) {
@@ -98,6 +103,7 @@ export class AutoImportCli {
           const resolution = this.resolver!.resolveImport(identifier, file.path);
 
           const missingImport: MissingImport = { identifier, file: file.path };
+          const relFile = path.relative(projectRoot, file.path);
 
           if (resolution) {
             missingImport.suggestion = {
@@ -105,14 +111,31 @@ export class AutoImportCli {
               isDefault: resolution.isDefault,
             };
 
+            const stmt = plugin.generateImportStatement(identifier, resolution.source, resolution.isDefault);
+
             if (options.verbose) {
-              const stmt = plugin.generateImportStatement(identifier, resolution.source, resolution.isDefault);
               console.log(chalk.gray(`  - ${identifier}`) + chalk.green(` → ${stmt}`));
             }
+
+            reportEntries.push({
+              file: relFile,
+              identifier,
+              importStatement: stmt,
+              source: resolution.source,
+              isDefault: resolution.isDefault,
+            });
           } else {
             if (options.verbose) {
               console.log(chalk.gray(`  - ${identifier}`) + chalk.red(' → not found in project'));
             }
+
+            reportEntries.push({
+              file: relFile,
+              identifier,
+              importStatement: null,
+              source: null,
+              isDefault: false,
+            });
           }
 
           allMissingImports.push(missingImport);
@@ -120,11 +143,13 @@ export class AutoImportCli {
       }
     }
 
+    const resolvable = allMissingImports.filter(m => m.suggestion).length;
+
     console.log(chalk.blue('\n\n📊 Summary:'));
     console.log(chalk.gray(`  Total files scanned: ${files.length}`));
     console.log(chalk.gray(`  Files with missing imports: ${filesWithIssues}`));
     console.log(chalk.gray(`  Total missing imports: ${allMissingImports.length}`));
-    console.log(chalk.gray(`  Resolvable imports: ${allMissingImports.filter(m => m.suggestion).length}`));
+    console.log(chalk.gray(`  Resolvable imports: ${resolvable}`));
 
     if (options.dryRun) {
       console.log(chalk.yellow('\n⚠️  Dry run mode - no files were modified'));
@@ -136,6 +161,28 @@ export class AutoImportCli {
         console.log(chalk.green('✓ Fixes applied successfully'));
       } else {
         console.log(chalk.yellow('\n⚠️  No resolvable imports found'));
+      }
+    }
+
+    const reportFormat = (options.report || 'none') as ReportFormat;
+    if (reportFormat !== 'none') {
+      const durationMs = Date.now() - startTime;
+      const reportData: ReportData = {
+        timestamp: new Date().toISOString(),
+        durationMs,
+        directory: projectRoot,
+        totalFilesScanned: files.length,
+        filesWithMissing: filesWithIssues,
+        totalMissing: allMissingImports.length,
+        totalResolved: resolvable,
+        totalUnresolved: allMissingImports.length - resolvable,
+        dryRun: !!options.dryRun,
+        entries: reportEntries,
+      };
+
+      const reportPath = await writeReport(projectRoot, reportFormat, reportData);
+      if (reportPath) {
+        console.log(chalk.green(`\n📝 Report written to ${chalk.cyan(path.relative(projectRoot, reportPath))}`));
       }
     }
   }
@@ -176,7 +223,7 @@ export function createCli(): Command {
   const program = new Command();
 
   program
-    .name('auto-import')
+    .name('import-pilot')
     .description('Automatically scan and fix missing imports in your project')
     .version('1.0.0')
     .argument('[directory]', 'Directory to scan', '.')
@@ -186,9 +233,10 @@ export function createCli(): Command {
     .option('-i, --ignore <patterns>', 'Patterns to ignore (comma-separated)')
     .option('-c, --config <path>', 'Path to config file')
     .option('--no-alias', 'Disable tsconfig path alias resolution')
+    .option('-r, --report <format>', 'Report format: md, json, txt, or none', 'none')
     .action(async (directory: string, options: CliOptions) => {
       try {
-        const configPath = path.resolve(directory, options.config || '.auto-import.json');
+        const configPath = path.resolve(directory, options.config || '.import-pilot.json');
         let fileConfig: Record<string, any> | null = null;
         try {
           const raw = await fs.readFile(configPath, 'utf-8');
@@ -211,6 +259,9 @@ export function createCli(): Command {
           if (options.verbose === undefined && fileConfig.verbose) {
             options.verbose = fileConfig.verbose;
           }
+          if (options.report === 'none' && fileConfig.report && fileConfig.report !== 'none') {
+            options.report = fileConfig.report;
+          }
         }
 
         const cli = new AutoImportCli();
@@ -223,7 +274,7 @@ export function createCli(): Command {
 
   program
     .command('init')
-    .description('Interactive setup wizard — configure auto-import for your project')
+    .description('Interactive setup wizard — configure import-pilot for your project')
     .argument('[directory]', 'Project directory', '.')
     .action(async (directory: string) => {
       try {

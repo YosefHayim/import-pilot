@@ -10,7 +10,7 @@ Multi-language CLI tool that scans projects for missing imports and auto-inserts
 
 ```
 auto-import-cli/
-├── bin/auto-import.js           # CLI entry (shebang → dist/cli/autoImportCli.js)
+├── bin/import-pilot.js          # CLI entry (shebang → dist/cli/autoImportCli.js)
 ├── src/
 │   ├── index.ts                 # Barrel exports (public API for npm consumers)
 │   ├── cli/autoImportCli.ts     # Orchestrator — coordinates full pipeline via plugins
@@ -30,7 +30,7 @@ auto-import-cli/
 │   ├── framework-samples/       # Vue/Svelte/Astro test files
 │   ├── function-support/        # Function call detection fixtures
 │   └── python-samples/          # Python test files
-└── .auto-import.json            # Dogfooding — project uses its own tool
+└── .import-pilot.json           # Dogfooding — project uses its own tool
 ```
 
 ## WHERE TO LOOK
@@ -67,7 +67,7 @@ auto-import-cli/
 ### Execution Flow
 
 ```
-bin/auto-import.js
+bin/import-pilot.js
   → createCli() → Commander parses argv
     → AutoImportCli.run(directory, options)
       1. ImportResolver.buildExportCache()  — scan all files, cache exports (uses plugins)
@@ -111,8 +111,8 @@ npm run dev            # tsc --watch
 npm test               # jest (101 tests)
 npm run test:watch     # jest --watch
 npm run test:coverage  # jest --coverage
-node bin/auto-import.js [dir] [--dry-run] [--verbose] [--extensions .ts,.tsx,.py]
-node bin/auto-import.js [dir] [--no-alias]  # disable tsconfig alias resolution
+node bin/import-pilot.js [dir] [--dry-run] [--verbose] [--extensions .ts,.tsx,.py]
+node bin/import-pilot.js [dir] [--no-alias]  # disable tsconfig alias resolution
 ```
 
 ## NOTES
