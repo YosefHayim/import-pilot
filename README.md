@@ -11,6 +11,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Downloads](https://img.shields.io/npm/dm/auto-import-cli.svg?style=flat-square)](https://www.npmjs.com/package/auto-import-cli)
 [![Node Version](https://img.shields.io/node/v/auto-import-cli.svg?style=flat-square)](https://nodejs.org)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow.svg?style=flat-square&logo=buy-me-a-coffee)](https://buymeacoffee.com/yosefhayim)
 
 [Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Documentation](#-documentation) • [Contributing](#-contributing)
 
@@ -404,6 +405,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - 📧 Email: yosefisabag+03@gmail.com
 - 💬 [GitHub Discussions](https://github.com/YosefHayim/auto-import-cli/discussions)
 - 🐛 [Issue Tracker](https://github.com/YosefHayim/auto-import-cli/issues)
+- ☕ [Buy Me a Coffee](https://buymeacoffee.com/yosefhayim)
 
 ---
 
