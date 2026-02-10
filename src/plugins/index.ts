@@ -1,14 +1,17 @@
 export type { LanguagePlugin } from './languagePlugin.js';
 export { JsTsPlugin } from './jsTsPlugin.js';
 export { PythonPlugin } from './pythonPlugin.js';
+export { ElixirPlugin } from './elixirPlugin.js';
 
 import type { LanguagePlugin } from './languagePlugin.js';
 import { JsTsPlugin } from './jsTsPlugin.js';
 import { PythonPlugin } from './pythonPlugin.js';
+import { ElixirPlugin } from './elixirPlugin.js';
 
 const DEFAULT_PLUGINS: LanguagePlugin[] = [
   new JsTsPlugin(),
   new PythonPlugin(),
+  new ElixirPlugin(),
 ];
 
 export function getPluginForExtension(ext: string, plugins?: LanguagePlugin[]): LanguagePlugin | null {
