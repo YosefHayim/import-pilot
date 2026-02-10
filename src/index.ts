@@ -4,6 +4,7 @@ export { FrameworkParser } from './parser/frameworkParser.js';
 export { ImportResolver } from './resolver/importResolver.js';
 export { AutoImportCli, createCli } from './cli/autoImportCli.js';
 export { detectProjectLanguages } from './detector/languageDetector.js';
+export { sortImports, groupImportStatements, classifyJsTsImport, classifyPythonImport } from './sorter/importSorter.js';
 
 // Plugin system
 export { JsTsPlugin } from './plugins/jsTsPlugin.js';
@@ -19,6 +20,7 @@ export type { FrameworkParseResult } from './parser/frameworkParser.js';
 export type { ExportInfo, ResolverOptions, PathAlias } from './resolver/importResolver.js';
 export type { CliOptions, MissingImport } from './cli/autoImportCli.js';
 export type { LanguagePlugin } from './plugins/languagePlugin.js';
+export type { ImportGroup, PythonImportGroup } from './sorter/importSorter.js';
 
 // Reporter
 export { writeReport, generateMarkdownReport, generateTextReport, generateJsonReport } from './reporter/reportGenerator.js';
