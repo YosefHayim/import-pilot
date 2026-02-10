@@ -69,6 +69,7 @@ export class PythonPlugin implements LanguagePlugin {
   }
 
   parseExports(content: string, filePath: string): ExportInfo[] {
+    const allNames = this.parseDunderAll(content);
     const exports: ExportInfo[] = [];
     let match;
 
@@ -94,7 +95,30 @@ export class PythonPlugin implements LanguagePlugin {
       exports.push({ name: match[1], source: filePath, isDefault: false });
     }
 
+    if (allNames) {
+      return exports.filter(e => allNames.has(e.name));
+    }
+
     return exports;
+  }
+
+  private parseDunderAll(content: string): Set<string> | null {
+    // Match __all__ = [...] or __all__ = (...) including multi-line
+    const allRegex = /^__all__\s*=\s*[\[(]([\s\S]*?)[\])]/m;
+    const match = allRegex.exec(content);
+    if (!match) {
+      return null;
+    }
+
+    const names = new Set<string>();
+    // Extract quoted strings (single or double quotes)
+    const nameRegex = /["'](\w+)["']/g;
+    let nameMatch;
+    while ((nameMatch = nameRegex.exec(match[1])) !== null) {
+      names.add(nameMatch[1]);
+    }
+
+    return names;
   }
 
   isBuiltInOrKeyword(name: string): boolean {

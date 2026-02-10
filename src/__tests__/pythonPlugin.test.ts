@@ -205,6 +205,134 @@ def top_level_func():
       expect(exports.some(e => e.name === 'top_level_func')).toBe(true);
       expect(exports.some(e => e.name === 'MyClass')).toBe(true);
     });
+
+    it('should filter exports by __all__ when present (list with single quotes)', () => {
+      const content = `__all__ = ['PublicClass', 'public_func']
+
+class PublicClass:
+    pass
+
+class InternalHelper:
+    pass
+
+def public_func():
+    pass
+
+def another_func():
+    pass
+
+MAX_RETRIES = 3`;
+      const exports = plugin.parseExports(content, '/project/module.py');
+      expect(exports).toHaveLength(2);
+      expect(exports.some(e => e.name === 'PublicClass')).toBe(true);
+      expect(exports.some(e => e.name === 'public_func')).toBe(true);
+      expect(exports.some(e => e.name === 'InternalHelper')).toBe(false);
+      expect(exports.some(e => e.name === 'another_func')).toBe(false);
+      expect(exports.some(e => e.name === 'MAX_RETRIES')).toBe(false);
+    });
+
+    it('should filter exports by __all__ with double quotes', () => {
+      const content = `__all__ = ["MyClass", "helper"]
+
+class MyClass:
+    pass
+
+def helper():
+    pass
+
+def secret():
+    pass`;
+      const exports = plugin.parseExports(content, '/project/module.py');
+      expect(exports).toHaveLength(2);
+      expect(exports.some(e => e.name === 'MyClass')).toBe(true);
+      expect(exports.some(e => e.name === 'helper')).toBe(true);
+      expect(exports.some(e => e.name === 'secret')).toBe(false);
+    });
+
+    it('should filter exports by __all__ in tuple form', () => {
+      const content = `__all__ = ('ClassA', 'func_b')
+
+class ClassA:
+    pass
+
+class ClassB:
+    pass
+
+def func_b():
+    pass`;
+      const exports = plugin.parseExports(content, '/project/module.py');
+      expect(exports).toHaveLength(2);
+      expect(exports.some(e => e.name === 'ClassA')).toBe(true);
+      expect(exports.some(e => e.name === 'func_b')).toBe(true);
+      expect(exports.some(e => e.name === 'ClassB')).toBe(false);
+    });
+
+    it('should filter exports by multi-line __all__', () => {
+      const content = `__all__ = [
+    'ModelA',
+    'ModelB',
+    "CONSTANT_X",
+]
+
+class ModelA:
+    pass
+
+class ModelB:
+    pass
+
+class ModelC:
+    pass
+
+CONSTANT_X = 42
+CONSTANT_Y = 99`;
+      const exports = plugin.parseExports(content, '/project/module.py');
+      expect(exports).toHaveLength(3);
+      expect(exports.some(e => e.name === 'ModelA')).toBe(true);
+      expect(exports.some(e => e.name === 'ModelB')).toBe(true);
+      expect(exports.some(e => e.name === 'CONSTANT_X')).toBe(true);
+      expect(exports.some(e => e.name === 'ModelC')).toBe(false);
+      expect(exports.some(e => e.name === 'CONSTANT_Y')).toBe(false);
+    });
+
+    it('should include constants in __all__ filtering', () => {
+      const content = `__all__ = ['API_URL']
+
+API_URL = "https://api.example.com"
+MAX_RETRIES = 3
+
+def helper():
+    pass`;
+      const exports = plugin.parseExports(content, '/project/config.py');
+      expect(exports).toHaveLength(1);
+      expect(exports[0].name).toBe('API_URL');
+    });
+
+    it('should export all public symbols when __all__ is absent', () => {
+      const content = `class MyClass:
+    pass
+
+def my_func():
+    pass
+
+MAX_SIZE = 100`;
+      const exports = plugin.parseExports(content, '/project/module.py');
+      expect(exports).toHaveLength(3);
+      expect(exports.some(e => e.name === 'MyClass')).toBe(true);
+      expect(exports.some(e => e.name === 'my_func')).toBe(true);
+      expect(exports.some(e => e.name === 'MAX_SIZE')).toBe(true);
+    });
+
+    it('should return empty when __all__ is empty list', () => {
+      const content = `__all__ = []
+
+class MyClass:
+    pass
+
+def my_func():
+    pass`;
+      const exports = plugin.parseExports(content, '/project/module.py');
+      expect(exports).toHaveLength(0);
+    });
   });
 
   describe('isBuiltInOrKeyword', () => {
