@@ -9,6 +9,7 @@ import { getPluginForExtension, getDefaultPlugins, getAllExtensions } from '@/pl
 import type { ReportFormat, ReportEntry, ReportData } from '@/reporter/reportGenerator.js';
 import { writeReport } from '@/reporter/reportGenerator.js';
 import { detectProjectLanguages } from '@/detector/languageDetector.js';
+import { sortImports } from '@/sorter/importSorter.js';
 
 export interface CliOptions {
   dryRun?: boolean;
@@ -18,6 +19,8 @@ export interface CliOptions {
   ignore?: string;
   alias?: boolean;
   report?: string;
+  sort?: boolean;
+  sortOrder?: string;
 }
 
 export interface MissingImport {
@@ -169,7 +172,7 @@ export class AutoImportCli {
       const fixable = allMissingImports.filter(m => m.suggestion);
       if (fixable.length > 0) {
         console.log(chalk.blue(`\n✨ Applying ${fixable.length} fixes...`));
-        await this.applyFixes(fixable);
+        await this.applyFixes(fixable, options.sort !== false);
         console.log(chalk.green('✓ Fixes applied successfully'));
       } else {
         console.log(chalk.yellow('\n⚠️  No resolvable imports found'));
@@ -199,7 +202,7 @@ export class AutoImportCli {
     }
   }
 
-  private async applyFixes(missingImports: MissingImport[]): Promise<void> {
+  private async applyFixes(missingImports: MissingImport[], enableSort: boolean): Promise<void> {
     const fileMap = new Map<string, MissingImport[]>();
     for (const item of missingImports) {
       if (!fileMap.has(item.file)) {
@@ -225,7 +228,8 @@ export class AutoImportCli {
 
       if (newImports.length === 0) continue;
 
-      const newContent = plugin.insertImports(content, newImports, filePath);
+      const sortedImports = enableSort ? sortImports(newImports, 'js') : newImports;
+      const newContent = plugin.insertImports(content, sortedImports, filePath);
       await fs.writeFile(filePath, newContent, 'utf-8');
     }
   }
@@ -246,6 +250,9 @@ export function createCli(): Command {
     .option('-c, --config <path>', 'Path to config file')
     .option('--no-alias', 'Disable tsconfig path alias resolution')
     .option('-r, --report <format>', 'Report format: md, json, txt, or none', 'none')
+    .option('-s, --sort', 'Sort and group imports (default: true)', true)
+    .option('--no-sort', 'Disable import sorting and grouping')
+    .option('--sort-order <order>', 'Import sort order: builtin,external,alias,relative', 'builtin,external,alias,relative')
     .action(async (directory: string, options: CliOptions) => {
       try {
         const configPath = path.resolve(directory, options.config || '.import-pilot.json');
@@ -273,6 +280,12 @@ export function createCli(): Command {
           }
           if (options.report === 'none' && fileConfig.report && fileConfig.report !== 'none') {
             options.report = fileConfig.report;
+          }
+          if (options.sort === undefined && fileConfig.sort !== undefined) {
+            options.sort = fileConfig.sort;
+          }
+          if (!options.sortOrder && fileConfig.sortOrder) {
+            options.sortOrder = fileConfig.sortOrder;
           }
         }
 
