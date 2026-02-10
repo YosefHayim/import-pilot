@@ -1,6 +1,7 @@
 import { getPluginForExtension, getAllExtensions, getDefaultPlugins } from '@/plugins/index';
 import { JsTsPlugin } from '@/plugins/jsTsPlugin';
 import { PythonPlugin } from '@/plugins/pythonPlugin';
+import { ElixirPlugin } from '@/plugins/elixirPlugin';
 
 describe('Plugin Registry', () => {
   describe('getPluginForExtension', () => {
@@ -44,6 +45,16 @@ describe('Plugin Registry', () => {
       expect(plugin).toBeInstanceOf(PythonPlugin);
     });
 
+    it('should return ElixirPlugin for .ex files', () => {
+      const plugin = getPluginForExtension('.ex');
+      expect(plugin).toBeInstanceOf(ElixirPlugin);
+    });
+
+    it('should return ElixirPlugin for .exs files', () => {
+      const plugin = getPluginForExtension('.exs');
+      expect(plugin).toBeInstanceOf(ElixirPlugin);
+    });
+
     it('should return null for unsupported extensions', () => {
       expect(getPluginForExtension('.rs')).toBeNull();
       expect(getPluginForExtension('.go')).toBeNull();
@@ -73,6 +84,8 @@ describe('Plugin Registry', () => {
       expect(exts).toContain('.svelte');
       expect(exts).toContain('.astro');
       expect(exts).toContain('.py');
+      expect(exts).toContain('.ex');
+      expect(exts).toContain('.exs');
     });
 
     it('should accept custom plugin list', () => {
@@ -82,11 +95,12 @@ describe('Plugin Registry', () => {
   });
 
   describe('getDefaultPlugins', () => {
-    it('should return JsTsPlugin and PythonPlugin', () => {
+    it('should return JsTsPlugin, PythonPlugin, and ElixirPlugin', () => {
       const plugins = getDefaultPlugins();
-      expect(plugins).toHaveLength(2);
+      expect(plugins).toHaveLength(3);
       expect(plugins.some(p => p instanceof JsTsPlugin)).toBe(true);
       expect(plugins.some(p => p instanceof PythonPlugin)).toBe(true);
+      expect(plugins.some(p => p instanceof ElixirPlugin)).toBe(true);
     });
 
     it('FIX 14: should return a new array each time (not mutable reference)', () => {
