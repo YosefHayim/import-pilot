@@ -51,11 +51,13 @@ export class AutoImportCli {
 
     let extensions: string[];
     if (options.extensions) {
-      extensions = options.extensions.split(',').map((ext) => (ext.trim().startsWith('.') ? ext.trim() : '.' + ext.trim()));
+      extensions = options.extensions
+        .split(',')
+        .map((ext) => (ext.trim().startsWith('.') ? ext.trim() : '.' + ext.trim()));
     } else {
       const detected = await detectProjectLanguages(projectRoot);
       const supported = new Set(getAllExtensions(this.plugins));
-      const filtered = detected.filter(ext => supported.has(ext));
+      const filtered = detected.filter((ext) => supported.has(ext));
       if (filtered.length > 0) {
         extensions = filtered;
         if (options.verbose) {
@@ -104,10 +106,18 @@ export class AutoImportCli {
         });
       });
 
+      // Parse exports from current file to avoid flagging locally defined identifiers
+      const currentFileExports = plugin.parseExports(file.content, file.path);
+      const exportedNames = new Set<string>();
+      currentFileExports.forEach((exp) => {
+        exportedNames.add(exp.name);
+      });
+
       const missingIdentifiers = usedIdentifiers
         .map((id) => id.name)
         .filter((name, idx, self) => self.indexOf(name) === idx)
         .filter((name) => !importedNames.has(name))
+        .filter((name) => !exportedNames.has(name))
         .filter((name) => !plugin.isBuiltInOrKeyword(name));
 
       if (missingIdentifiers.length > 0) {
@@ -268,7 +278,11 @@ export function createCli(): Command {
     .option('--no-alias', 'Disable tsconfig path alias resolution')
     .option('-r, --report <format>', 'Report format: md, json, txt, or none', 'none')
     .option('-s, --no-sort', 'Disable import sorting and grouping')
-    .option('--sort-order <order>', 'Import sort order: builtin,external,alias,relative', 'builtin,external,alias,relative')
+    .option(
+      '--sort-order <order>',
+      'Import sort order: builtin,external,alias,relative',
+      'builtin,external,alias,relative',
+    )
     .action(async (directory: string, options: CliOptions) => {
       try {
         const configPath = path.resolve(directory, options.config || '.import-pilot.json');
