@@ -9,6 +9,7 @@ const E2E_FIXTURE = path.join(ROOT, 'tests', 'e2e-fixture');
 const SAMPLE_PROJECT = path.join(ROOT, 'tests', 'sample-project');
 const E2E_ALIAS_FIXTURE = path.join(ROOT, 'tests', 'e2e-alias-fixture');
 const E2E_MIXED_FIXTURE = path.join(ROOT, 'tests', 'e2e-mixed-fixture');
+const SAME_FILE_EXPORT_FIXTURE = path.join(ROOT, 'tests', 'same-file-export-fixture');
 
 function run(args: string[], options: { cwd?: string } = {}): string {
   return execFileSync(process.execPath, [BIN, ...args], {
@@ -41,6 +42,7 @@ afterEach(() => {
   cleanReports(SAMPLE_PROJECT);
   cleanReports(E2E_ALIAS_FIXTURE);
   cleanReports(E2E_MIXED_FIXTURE);
+  cleanReports(SAME_FILE_EXPORT_FIXTURE);
 });
 
 describe('E2E: CLI pipeline', () => {
@@ -73,15 +75,9 @@ describe('E2E: CLI pipeline', () => {
     });
 
     it('should not modify any files', () => {
-      const before = fs.readFileSync(
-        path.join(SAMPLE_PROJECT, 'components', 'UserProfile.tsx'),
-        'utf-8',
-      );
+      const before = fs.readFileSync(path.join(SAMPLE_PROJECT, 'components', 'UserProfile.tsx'), 'utf-8');
       run(['--dry-run', SAMPLE_PROJECT]);
-      const after = fs.readFileSync(
-        path.join(SAMPLE_PROJECT, 'components', 'UserProfile.tsx'),
-        'utf-8',
-      );
+      const after = fs.readFileSync(path.join(SAMPLE_PROJECT, 'components', 'UserProfile.tsx'), 'utf-8');
       expect(after).toBe(before);
     });
   });
@@ -221,15 +217,11 @@ describe('E2E: CLI pipeline', () => {
       run(['--dry-run', '--report', 'json', E2E_FIXTURE]);
       const reportPath = path.join(E2E_FIXTURE, 'import-pilot-report.json');
       const data = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
-      const headerEntry = data.entries.find(
-        (e: { identifier: string }) => e.identifier === 'Header',
-      );
+      const headerEntry = data.entries.find((e: { identifier: string }) => e.identifier === 'Header');
       expect(headerEntry).toBeDefined();
       expect(headerEntry.isDefault).toBe(true);
 
-      const cardEntry = data.entries.find(
-        (e: { identifier: string }) => e.identifier === 'Card',
-      );
+      const cardEntry = data.entries.find((e: { identifier: string }) => e.identifier === 'Card');
       expect(cardEntry).toBeDefined();
       expect(cardEntry.isDefault).toBe(false);
     });
@@ -331,6 +323,35 @@ describe('E2E: CLI pipeline', () => {
       expect(match).not.toBeNull();
       const fileCount = parseInt(match![1]!, 10);
       expect(fileCount).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('same-file-export-fixture: locally defined identifiers', () => {
+    it('should NOT flag functions that are exported and used in the same file', () => {
+      const output = run(['--verbose', '--dry-run', SAME_FILE_EXPORT_FIXTURE]);
+      // getUserById is exported and used in same file - should NOT appear
+      expect(output).not.toContain('getUserById');
+      // getCurrentUser uses getUserById from same file - should NOT appear
+      expect(output).not.toContain('getCurrentUser');
+    });
+
+    it('should NOT flag constants that are exported and used in the same file', () => {
+      const output = run(['--verbose', '--dry-run', SAME_FILE_EXPORT_FIXTURE]);
+      // DEFAULT_USER_NAME is exported and used in same file
+      expect(output).not.toContain('DEFAULT_USER_NAME');
+    });
+
+    it('should NOT flag types that are exported and used in the same file', () => {
+      const output = run(['--verbose', '--dry-run', SAME_FILE_EXPORT_FIXTURE]);
+      // UserId is exported and used in same file
+      expect(output).not.toContain('UserId');
+    });
+
+    it('should report zero missing imports for file with only same-file exports', () => {
+      const output = run(['--dry-run', SAME_FILE_EXPORT_FIXTURE]);
+      // The file only uses identifiers that are exported in the same file
+      expect(output).toContain('Files with missing imports: 0');
+      expect(output).toContain('Total missing imports: 0');
     });
   });
 });
