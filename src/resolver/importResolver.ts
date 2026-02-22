@@ -32,6 +32,8 @@ export class ImportResolver {
   private options: ResolverOptions;
   private pathAliases: PathAlias[] = [];
 
+  private baseUrl?: string;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private chalkInstance: any = null;
   constructor(options: ResolverOptions) {
@@ -224,6 +226,11 @@ export class ImportResolver {
       const paths: Record<string, string[]> = tsconfig.compilerOptions?.paths || {};
       const resolvedBaseUrl = path.resolve(this.options.projectRoot, baseUrl);
 
+      // FIX #90: Store baseUrl for non-relative import resolution
+      if (tsconfig.compilerOptions?.baseUrl) {
+        this.baseUrl = tsconfig.compilerOptions.baseUrl;
+      }
+
       for (const [aliasPattern, targets] of Object.entries(paths)) {
         if (!Array.isArray(targets) || targets.length === 0) continue;
 
@@ -248,6 +255,7 @@ export class ImportResolver {
       this.pathAliases.sort((a, b) => b.prefix.length - a.prefix.length);
     } catch {
       this.pathAliases = [];
+      this.baseUrl = undefined;
     }
   }
 
@@ -267,21 +275,33 @@ export class ImportResolver {
     return null;
   }
 
+  private getBaseUrlImportPath(toFile: string): string | null {
+    if (!this.baseUrl) return null;
+    const resolvedBaseUrl = path.resolve(this.options.projectRoot, this.baseUrl);
+    const normalizedToFile = path.resolve(toFile);
+    if (normalizedToFile.startsWith(resolvedBaseUrl + path.sep)) {
+      const remainder = normalizedToFile.slice(resolvedBaseUrl.length + 1);
+      return remainder.replace(/\\/g, '/').replace(/\.(ts|tsx|js|jsx|py)$/, '');
+    }
+    return null;
+  }
+
   private getRelativeImportPath(fromFile: string, toFile: string): string {
     if (this.pathAliases.length > 0) {
       const aliasPath = this.getAliasImportPath(toFile);
       if (aliasPath) return aliasPath;
     }
-
+    // FIX #90: Try baseUrl-relative path
+    if (this.baseUrl) {
+      const baseUrlPath = this.getBaseUrlImportPath(toFile);
+      if (baseUrlPath) return baseUrlPath;
+    }
     const fromDir = path.dirname(fromFile);
     let relativePath = path.relative(fromDir, toFile).replace(/\\/g, '/');
-
     relativePath = relativePath.replace(/\.(ts|tsx|js|jsx|py)$/, '');
-
     if (!relativePath.startsWith('.')) {
       relativePath = './' + relativePath;
     }
-
     return relativePath;
   }
 

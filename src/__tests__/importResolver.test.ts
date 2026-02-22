@@ -565,4 +565,93 @@ export { foo, baz };
       }
     });
   });
+
+  describe('FIX #90: baseUrl without paths', () => {
+    it('should resolve via baseUrl when paths are not set', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_baseurl_only_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            baseUrl: 'src',
+          },
+        }),
+      );
+
+      const utilsDir = path.join(tmpDir, 'src', 'utils');
+      await fs.mkdir(utilsDir, { recursive: true });
+      await fs.writeFile(path.join(utilsDir, 'helper.ts'), 'export function helper() {}');
+
+      try {
+        const resolver = new ImportResolver({ projectRoot: tmpDir });
+        await resolver.buildExportCache();
+
+        const resolution = resolver.resolveImport('helper', path.join(tmpDir, 'src', 'app.ts'));
+        expect(resolution).not.toBeNull();
+        expect(resolution!.source).toBe('utils/helper');
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should prioritize paths aliases over baseUrl', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_baseurl_priority_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            baseUrl: 'src',
+            paths: {
+              '@utils/*': ['utils/*'],
+            },
+          },
+        }),
+      );
+
+      const utilsDir = path.join(tmpDir, 'src', 'utils');
+      await fs.mkdir(utilsDir, { recursive: true });
+      await fs.writeFile(path.join(utilsDir, 'helper.ts'), 'export function helper() {}');
+
+      try {
+        const resolver = new ImportResolver({ projectRoot: tmpDir });
+        await resolver.buildExportCache();
+
+        const resolution = resolver.resolveImport('helper', path.join(tmpDir, 'src', 'app.ts'));
+        expect(resolution).not.toBeNull();
+        expect(resolution!.source).toBe('@utils/helper');
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should use relative paths when neither baseUrl nor paths is set (regression guard)', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_no_baseurl_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            strict: true,
+          },
+        }),
+      );
+
+      const utilsDir = path.join(tmpDir, 'src', 'utils');
+      await fs.mkdir(utilsDir, { recursive: true });
+      await fs.writeFile(path.join(utilsDir, 'helper.ts'), 'export function helper() {}');
+
+      try {
+        const resolver = new ImportResolver({ projectRoot: tmpDir });
+        await resolver.buildExportCache();
+
+        const resolution = resolver.resolveImport('helper', path.join(tmpDir, 'src', 'app.ts'));
+        expect(resolution).not.toBeNull();
+        expect(resolution!.source).toBe('./utils/helper');
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+  });
 });
