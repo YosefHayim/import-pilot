@@ -9,16 +9,58 @@ export class RustPlugin implements LanguagePlugin {
   parseImports(content: string, _filePath: string): ImportStatement[] {
     const imports: ImportStatement[] = [];
     const stripped = this.stripCommentsAndStrings(content);
+    // Collect complete use statements (handles multiline with brace depth tracking)
+    const useStatements = this.collectUseStatements(stripped);
 
-    // Match `use path::to::Item;` and `use path::to::{A, B, C};` and `use path::*;`
-    const useRegex = /^[ \t]*use\s+([\w:]+(?:::\{[^}]+\}|::\*|))\s*;/gm;
-    let match;
+    for (const stmt of useStatements) {
+      // Handle glob imports: use path::*;
+      if (stmt.endsWith('::*')) {
+        const source = stmt.slice(0, -3);
+        imports.push({ source, imports: ['*'], isDefault: false, isNamespace: true });
+        continue;
+      }
 
-    while ((match = useRegex.exec(stripped)) !== null) {
-      const fullPath = match[1].trim();
-      this.parseUseStatement(fullPath, imports);
+      // Check if there's a brace group (nested use tree)
+      const braceIdx = stmt.indexOf('{');
+      if (braceIdx !== -1) {
+        // Extract prefix before `{` and inner body between outermost braces
+        const prefix = stmt.slice(0, braceIdx).replace(/::$/, '').trim();
+        const lastBrace = stmt.lastIndexOf('}');
+        const innerBody = stmt.slice(braceIdx + 1, lastBrace);
+        const expanded = this.expandUsePaths(prefix, innerBody);
+
+        // Group expanded paths by source (all-but-last segment)
+        const grouped = new Map<string, string[]>();
+        for (const fullPath of expanded) {
+          const parts = fullPath.split('::');
+          if (parts.length >= 2) {
+            const name = parts[parts.length - 1];
+            const source = parts.slice(0, -1).join('::');
+            if (!grouped.has(source)) grouped.set(source, []);
+            grouped.get(source)!.push(name);
+          } else {
+            // Single-segment (e.g. from `self` resolution at top level)
+            if (!grouped.has(fullPath)) grouped.set(fullPath, []);
+            grouped.get(fullPath)!.push(fullPath);
+          }
+        }
+
+        for (const [source, names] of grouped) {
+          imports.push({ source, imports: names, isDefault: false });
+        }
+      } else {
+        // Simple path: use std::collections::HashMap;
+        const parts = stmt.split('::');
+        if (parts.length >= 2) {
+          const name = parts[parts.length - 1];
+          const source = parts.slice(0, -1).join('::');
+          imports.push({ source, imports: [name], isDefault: false });
+        } else {
+          // Single-segment use (rare): use serde;
+          imports.push({ source: stmt, imports: [stmt], isDefault: false });
+        }
+      }
     }
-
     return imports;
   }
 
@@ -32,10 +74,15 @@ export class RustPlugin implements LanguagePlugin {
       const trimmed = line.trim();
 
       // Skip use statements, comments, empty lines, attribute lines
-      if (trimmed.startsWith('use ') || trimmed.startsWith('//') ||
-          trimmed.startsWith('#[') || trimmed === '' ||
-          trimmed.startsWith('mod ') || trimmed.startsWith('pub mod ') ||
-          trimmed.startsWith('extern ')) {
+      if (
+        trimmed.startsWith('use ') ||
+        trimmed.startsWith('//') ||
+        trimmed.startsWith('#[') ||
+        trimmed === '' ||
+        trimmed.startsWith('mod ') ||
+        trimmed.startsWith('pub mod ') ||
+        trimmed.startsWith('extern ')
+      ) {
         return;
       }
 
@@ -90,7 +137,7 @@ export class RustPlugin implements LanguagePlugin {
       }
 
       // Macro usage: my_macro!(...)
-      const macroRegex = /(?<!\w)([a-z_][a-z0-9_]*)!\s*[\(\[\{]/g;
+      const macroRegex = /(?<!\w)([a-z_][a-z0-9_]*)!\s*[([{]/g;
       while ((m = macroRegex.exec(line)) !== null) {
         const name = m[1];
         if (RUST_BUILTIN_MACROS.has(name) || seen.has(name)) continue;
@@ -107,7 +154,8 @@ export class RustPlugin implements LanguagePlugin {
     const stripped = this.stripCommentsAndStrings(content);
     let match;
 
-    const pubFnRegex = /^[ \t]*pub(?:\s*\(\s*crate\s*\))?\s+(?:(?:async|unsafe|const)\s+)*(?:extern\s+(?:"[^"]*"\s+)?)?fn\s+(\w+)/gm;
+    const pubFnRegex =
+      /^[ \t]*pub(?:\s*\(\s*crate\s*\))?\s+(?:(?:async|unsafe|const)\s+)*(?:extern\s+(?:"[^"]*"\s+)?)?fn\s+(\w+)/gm;
     while ((match = pubFnRegex.exec(stripped)) !== null) {
       exports.push({ name: match[1], source: filePath, isDefault: false });
     }
@@ -163,7 +211,10 @@ export class RustPlugin implements LanguagePlugin {
     // pub use re-exports with braces: pub use path::{A, B};
     const pubUseBracesRegex = /^[ \t]*pub\s+use\s+[\w:]+::\{([^}]+)\}\s*;/gm;
     while ((match = pubUseBracesRegex.exec(stripped)) !== null) {
-      const names = match[1].split(',').map(s => s.trim()).filter(s => s.length > 0);
+      const names = match[1]
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
       for (const name of names) {
         const parts = name.split('::');
         exports.push({ name: parts[parts.length - 1], source: filePath, isDefault: false });
@@ -194,9 +245,14 @@ export class RustPlugin implements LanguagePlugin {
       const trimmed = lines[i].trim();
 
       // Skip comments, empty lines, attributes
-      if (trimmed.startsWith('//') || trimmed.startsWith('/*') ||
-          trimmed.startsWith('*') || trimmed === '' ||
-          trimmed.startsWith('#!') || trimmed.startsWith('#[')) {
+      if (
+        trimmed.startsWith('//') ||
+        trimmed.startsWith('/*') ||
+        trimmed.startsWith('*') ||
+        trimmed === '' ||
+        trimmed.startsWith('#!') ||
+        trimmed.startsWith('#[')
+      ) {
         firstCodeLine = i + 1;
         continue;
       }
@@ -218,39 +274,98 @@ export class RustPlugin implements LanguagePlugin {
     return lines.join('\n');
   }
 
-  private parseUseStatement(fullPath: string, imports: ImportStatement[]): void {
-    // Handle nested imports: use std::{io, fs, collections::HashMap};
-    const nestedMatch = fullPath.match(/^(.+)::\{([^}]+)\}$/);
-    if (nestedMatch) {
-      const basePath = nestedMatch[1];
-      const names = nestedMatch[2].split(',').map(s => s.trim()).filter(s => s.length > 0);
-      const resolvedNames: string[] = [];
-      for (const name of names) {
-        // Handle nested qualified names like collections::HashMap
-        const parts = name.split('::');
-        resolvedNames.push(parts[parts.length - 1]);
+  /** Collect complete `use` statements from content, handling multiline with brace depth tracking. */
+  private collectUseStatements(content: string): string[] {
+    const statements: string[] = [];
+    const useStartRegex = /^[ \t]*use\s+/gm;
+    let startMatch;
+
+    while ((startMatch = useStartRegex.exec(content)) !== null) {
+      let pos = startMatch.index + startMatch[0].length;
+      let braceDepth = 0;
+      let stmt = '';
+
+      while (pos < content.length) {
+        const ch = content[pos];
+        if (ch === '{') {
+          braceDepth++;
+          stmt += ch;
+        } else if (ch === '}') {
+          braceDepth--;
+          stmt += ch;
+        } else if (ch === ';' && braceDepth === 0) {
+          break;
+        } else {
+          stmt += ch;
+        }
+        pos++;
       }
-      imports.push({ source: basePath, imports: resolvedNames, isDefault: false });
-      return;
+
+      // Normalize whitespace (multiline → single line)
+      const normalized = stmt.replace(/\s+/g, ' ').trim();
+      if (normalized) {
+        statements.push(normalized);
+      }
     }
 
-    // Handle glob imports: use std::prelude::*;
-    const globMatch = fullPath.match(/^(.+)::\*$/);
-    if (globMatch) {
-      imports.push({ source: globMatch[1], imports: ['*'], isDefault: false, isNamespace: true });
-      return;
+    return statements;
+  }
+
+  /** Recursively expand nested use-tree braces into fully-qualified paths. */
+  private expandUsePaths(prefix: string, body: string): string[] {
+    const parts = this.splitTopLevel(body);
+    const results: string[] = [];
+
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+
+      const braceIdx = trimmed.indexOf('{');
+      if (braceIdx === -1) {
+        // Simple segment: "io", "self", "Read"
+        if (trimmed === 'self') {
+          results.push(prefix);
+        } else {
+          results.push(prefix ? `${prefix}::${trimmed}` : trimmed);
+        }
+      } else {
+        // Nested: "io::{self, Read}"
+        const subPrefix = trimmed.slice(0, braceIdx).replace(/::$/, '').trim();
+        const innerBody = trimmed.slice(braceIdx + 1, trimmed.lastIndexOf('}'));
+        const newPrefix = prefix ? (subPrefix ? `${prefix}::${subPrefix}` : prefix) : subPrefix;
+        results.push(...this.expandUsePaths(newPrefix, innerBody));
+      }
     }
 
-    // Handle simple imports: use std::collections::HashMap;
-    const parts = fullPath.split('::');
-    if (parts.length >= 2) {
-      const name = parts[parts.length - 1];
-      const source = parts.slice(0, -1).join('::');
-      imports.push({ source, imports: [name], isDefault: false });
-    } else {
-      // Single-segment use (rare): use something;
-      imports.push({ source: fullPath, imports: [fullPath], isDefault: false });
+    return results;
+  }
+
+  /** Split a string by commas at top-level brace depth only (not inside nested braces). */
+  private splitTopLevel(body: string): string[] {
+    const parts: string[] = [];
+    let depth = 0;
+    let current = '';
+
+    for (const ch of body) {
+      if (ch === '{') {
+        depth++;
+        current += ch;
+      } else if (ch === '}') {
+        depth--;
+        current += ch;
+      } else if (ch === ',' && depth === 0) {
+        parts.push(current);
+        current = '';
+      } else {
+        current += ch;
+      }
     }
+
+    if (current.trim()) {
+      parts.push(current);
+    }
+
+    return parts;
   }
 
   private stripCommentsAndStrings(content: string): string {
@@ -269,20 +384,28 @@ export class RustPlugin implements LanguagePlugin {
 
   private isDefinitionLine(trimmed: string, name: string): boolean {
     const defPatterns = [
-      new RegExp(`^pub\\s+(?:(?:async|unsafe|const)\\s+)*(?:extern\\s+(?:"[^"]*"\\s+)?)?(?:struct|enum|trait|type|fn|mod)\\s+${name}\\b`),
-      new RegExp(`^pub\\s*\\(\\s*crate\\s*\\)\\s+(?:(?:async|unsafe|const)\\s+)*(?:extern\\s+(?:"[^"]*"\\s+)?)?(?:struct|enum|trait|type|fn|mod)\\s+${name}\\b`),
-      new RegExp(`^(?:(?:async|unsafe|const)\\s+)*(?:extern\\s+(?:"[^"]*"\\s+)?)?(?:struct|enum|trait|type|fn|mod)\\s+${name}\\b`),
+      new RegExp(
+        `^pub\\s+(?:(?:async|unsafe|const)\\s+)*(?:extern\\s+(?:"[^"]*"\\s+)?)?(?:struct|enum|trait|type|fn|mod)\\s+${name}\\b`,
+      ),
+      new RegExp(
+        `^pub\\s*\\(\\s*crate\\s*\\)\\s+(?:(?:async|unsafe|const)\\s+)*(?:extern\\s+(?:"[^"]*"\\s+)?)?(?:struct|enum|trait|type|fn|mod)\\s+${name}\\b`,
+      ),
+      new RegExp(
+        `^(?:(?:async|unsafe|const)\\s+)*(?:extern\\s+(?:"[^"]*"\\s+)?)?(?:struct|enum|trait|type|fn|mod)\\s+${name}\\b`,
+      ),
     ];
-    return defPatterns.some(p => p.test(trimmed));
+    return defPatterns.some((p) => p.test(trimmed));
   }
 
   private isFunctionDefinitionLine(trimmed: string, name: string): boolean {
     const defPatterns = [
       new RegExp(`^pub\\s+(?:(?:async|unsafe|const)\\s+)*(?:extern\\s+(?:"[^"]*"\\s+)?)?fn\\s+${name}\\b`),
-      new RegExp(`^pub\\s*\\(\\s*crate\\s*\\)\\s+(?:(?:async|unsafe|const)\\s+)*(?:extern\\s+(?:"[^"]*"\\s+)?)?fn\\s+${name}\\b`),
+      new RegExp(
+        `^pub\\s*\\(\\s*crate\\s*\\)\\s+(?:(?:async|unsafe|const)\\s+)*(?:extern\\s+(?:"[^"]*"\\s+)?)?fn\\s+${name}\\b`,
+      ),
       new RegExp(`^(?:(?:async|unsafe|const)\\s+)*(?:extern\\s+(?:"[^"]*"\\s+)?)?fn\\s+${name}\\b`),
     ];
-    return defPatterns.some(p => p.test(trimmed));
+    return defPatterns.some((p) => p.test(trimmed));
   }
 
   private filePathToModule(filePath: string): string {
@@ -315,22 +438,72 @@ export class RustPlugin implements LanguagePlugin {
 
 const RUST_STD_TYPES = new Set([
   // Primitive wrappers and smart pointers
-  'Vec', 'String', 'Box', 'Rc', 'Arc', 'Cell', 'RefCell', 'Mutex', 'RwLock',
+  'Vec',
+  'String',
+  'Box',
+  'Rc',
+  'Arc',
+  'Cell',
+  'RefCell',
+  'Mutex',
+  'RwLock',
   // Collections
-  'HashMap', 'HashSet', 'BTreeMap', 'BTreeSet', 'VecDeque', 'LinkedList', 'BinaryHeap',
+  'HashMap',
+  'HashSet',
+  'BTreeMap',
+  'BTreeSet',
+  'VecDeque',
+  'LinkedList',
+  'BinaryHeap',
   // Option/Result
-  'Option', 'Result', 'Some', 'None', 'Ok', 'Err',
+  'Option',
+  'Result',
+  'Some',
+  'None',
+  'Ok',
+  'Err',
   // Common traits
-  'Clone', 'Copy', 'Debug', 'Default', 'Display', 'Drop',
-  'Eq', 'PartialEq', 'Ord', 'PartialOrd', 'Hash',
-  'Send', 'Sync', 'Sized', 'Unpin',
-  'From', 'Into', 'TryFrom', 'TryInto',
-  'Iterator', 'IntoIterator', 'ExactSizeIterator', 'DoubleEndedIterator',
-  'Fn', 'FnMut', 'FnOnce',
-  'AsRef', 'AsMut', 'Borrow', 'BorrowMut', 'ToOwned',
-  'ToString', 'Deref', 'DerefMut',
+  'Clone',
+  'Copy',
+  'Debug',
+  'Default',
+  'Display',
+  'Drop',
+  'Eq',
+  'PartialEq',
+  'Ord',
+  'PartialOrd',
+  'Hash',
+  'Send',
+  'Sync',
+  'Sized',
+  'Unpin',
+  'From',
+  'Into',
+  'TryFrom',
+  'TryInto',
+  'Iterator',
+  'IntoIterator',
+  'ExactSizeIterator',
+  'DoubleEndedIterator',
+  'Fn',
+  'FnMut',
+  'FnOnce',
+  'AsRef',
+  'AsMut',
+  'Borrow',
+  'BorrowMut',
+  'ToOwned',
+  'ToString',
+  'Deref',
+  'DerefMut',
   // IO
-  'Read', 'Write', 'Seek', 'BufRead', 'BufReader', 'BufWriter',
+  'Read',
+  'Write',
+  'Seek',
+  'BufRead',
+  'BufReader',
+  'BufWriter',
   // Error types
   'Error',
   // Cow
@@ -344,50 +517,215 @@ const RUST_STD_TYPES = new Set([
 ]);
 
 const RUST_KEYWORDS = new Set([
-  'fn', 'let', 'mut', 'pub', 'struct', 'enum', 'impl', 'trait', 'where',
-  'mod', 'crate', 'self', 'super', 'use', 'as', 'in', 'for', 'loop',
-  'while', 'if', 'else', 'match', 'return', 'break', 'continue',
-  'const', 'static', 'type', 'unsafe', 'extern', 'ref', 'move',
-  'async', 'await', 'dyn', 'true', 'false', 'where', 'yield',
-  'abstract', 'become', 'box', 'do', 'final', 'macro', 'override',
-  'priv', 'typeof', 'unsized', 'virtual', 'try',
+  'fn',
+  'let',
+  'mut',
+  'pub',
+  'struct',
+  'enum',
+  'impl',
+  'trait',
+  'where',
+  'mod',
+  'crate',
+  'self',
+  'super',
+  'use',
+  'as',
+  'in',
+  'for',
+  'loop',
+  'while',
+  'if',
+  'else',
+  'match',
+  'return',
+  'break',
+  'continue',
+  'const',
+  'static',
+  'type',
+  'unsafe',
+  'extern',
+  'ref',
+  'move',
+  'async',
+  'await',
+  'dyn',
+  'true',
+  'false',
+  'where',
+  'yield',
+  'abstract',
+  'become',
+  'box',
+  'do',
+  'final',
+  'macro',
+  'override',
+  'priv',
+  'typeof',
+  'unsized',
+  'virtual',
+  'try',
   // Common macros treated as keywords
-  'println', 'print', 'eprintln', 'eprint', 'format', 'write', 'writeln',
-  'vec', 'panic', 'assert', 'assert_eq', 'assert_ne', 'debug_assert',
-  'todo', 'unimplemented', 'unreachable', 'cfg', 'include', 'include_str',
-  'include_bytes', 'env', 'option_env', 'concat', 'stringify', 'line',
-  'column', 'file', 'module_path',
+  'println',
+  'print',
+  'eprintln',
+  'eprint',
+  'format',
+  'write',
+  'writeln',
+  'vec',
+  'panic',
+  'assert',
+  'assert_eq',
+  'assert_ne',
+  'debug_assert',
+  'todo',
+  'unimplemented',
+  'unreachable',
+  'cfg',
+  'include',
+  'include_str',
+  'include_bytes',
+  'env',
+  'option_env',
+  'concat',
+  'stringify',
+  'line',
+  'column',
+  'file',
+  'module_path',
   // Self type
   'Self',
 ]);
 
 const RUST_PRIMITIVE_TYPES = new Set([
-  'i8', 'i16', 'i32', 'i64', 'i128', 'isize',
-  'u8', 'u16', 'u32', 'u64', 'u128', 'usize',
-  'f32', 'f64', 'bool', 'char', 'str',
+  'i8',
+  'i16',
+  'i32',
+  'i64',
+  'i128',
+  'isize',
+  'u8',
+  'u16',
+  'u32',
+  'u64',
+  'u128',
+  'usize',
+  'f32',
+  'f64',
+  'bool',
+  'char',
+  'str',
 ]);
 
 const RUST_COMMON_FUNCTIONS = new Set([
-  'main', 'new', 'default', 'from', 'into', 'clone', 'to_string',
-  'to_owned', 'as_ref', 'as_mut', 'unwrap', 'expect', 'map',
-  'and_then', 'or_else', 'ok', 'err', 'is_some', 'is_none',
-  'is_ok', 'is_err', 'iter', 'into_iter', 'collect', 'push',
-  'pop', 'len', 'is_empty', 'contains', 'get', 'insert', 'remove',
-  'with_capacity', 'capacity', 'reserve', 'shrink_to_fit',
-  'extend', 'drain', 'clear', 'sort', 'sort_by', 'sort_by_key',
-  'dedup', 'truncate', 'retain', 'split', 'join', 'trim',
-  'starts_with', 'ends_with', 'replace', 'find', 'rfind',
-  'chars', 'bytes', 'lines', 'as_str', 'as_bytes',
-  'to_lowercase', 'to_uppercase', 'parse', 'read', 'write',
-  'flush', 'close', 'lock', 'try_lock', 'read_to_string',
-  'write_all', 'read_line', 'read_exact',
+  'main',
+  'new',
+  'default',
+  'from',
+  'into',
+  'clone',
+  'to_string',
+  'to_owned',
+  'as_ref',
+  'as_mut',
+  'unwrap',
+  'expect',
+  'map',
+  'and_then',
+  'or_else',
+  'ok',
+  'err',
+  'is_some',
+  'is_none',
+  'is_ok',
+  'is_err',
+  'iter',
+  'into_iter',
+  'collect',
+  'push',
+  'pop',
+  'len',
+  'is_empty',
+  'contains',
+  'get',
+  'insert',
+  'remove',
+  'with_capacity',
+  'capacity',
+  'reserve',
+  'shrink_to_fit',
+  'extend',
+  'drain',
+  'clear',
+  'sort',
+  'sort_by',
+  'sort_by_key',
+  'dedup',
+  'truncate',
+  'retain',
+  'split',
+  'join',
+  'trim',
+  'starts_with',
+  'ends_with',
+  'replace',
+  'find',
+  'rfind',
+  'chars',
+  'bytes',
+  'lines',
+  'as_str',
+  'as_bytes',
+  'to_lowercase',
+  'to_uppercase',
+  'parse',
+  'read',
+  'write',
+  'flush',
+  'close',
+  'lock',
+  'try_lock',
+  'read_to_string',
+  'write_all',
+  'read_line',
+  'read_exact',
 ]);
 
 const RUST_BUILTIN_MACROS = new Set([
-  'println', 'print', 'eprintln', 'eprint', 'format', 'write', 'writeln',
-  'vec', 'panic', 'assert', 'assert_eq', 'assert_ne', 'debug_assert',
-  'debug_assert_eq', 'debug_assert_ne', 'todo', 'unimplemented',
-  'unreachable', 'cfg', 'include', 'include_str', 'include_bytes',
-  'env', 'option_env', 'concat', 'stringify', 'line', 'column',
-  'file', 'module_path', 'matches', 'dbg',
+  'println',
+  'print',
+  'eprintln',
+  'eprint',
+  'format',
+  'write',
+  'writeln',
+  'vec',
+  'panic',
+  'assert',
+  'assert_eq',
+  'assert_ne',
+  'debug_assert',
+  'debug_assert_eq',
+  'debug_assert_ne',
+  'todo',
+  'unimplemented',
+  'unreachable',
+  'cfg',
+  'include',
+  'include_str',
+  'include_bytes',
+  'env',
+  'option_env',
+  'concat',
+  'stringify',
+  'line',
+  'column',
+  'file',
+  'module_path',
+  'matches',
+  'dbg',
 ]);

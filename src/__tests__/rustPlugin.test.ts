@@ -48,9 +48,9 @@ describe('RustPlugin', () => {
     it('should parse nested use with deeply qualified names', () => {
       const content = `use std::{io::Read, collections::HashMap};`;
       const imports = plugin.parseImports(content, 'test.rs');
-      expect(imports).toHaveLength(1);
-      expect(imports[0].source).toBe('std');
-      expect(imports[0].imports).toEqual(['Read', 'HashMap']);
+      expect(imports).toHaveLength(2);
+      expect(imports.some((i) => i.source === 'std::io' && i.imports.includes('Read'))).toBe(true);
+      expect(imports.some((i) => i.source === 'std::collections' && i.imports.includes('HashMap'))).toBe(true);
     });
 
     it('should parse glob imports', () => {
@@ -91,19 +91,19 @@ use std::fs;`;
     it('should detect PascalCase type usage', () => {
       const content = `let user = User::new();`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'User')).toBe(true);
+      expect(ids.some((id) => id.name === 'User')).toBe(true);
     });
 
     it('should detect qualified path usage', () => {
       const content = `let map = MyMap::with_capacity(10);`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'MyMap')).toBe(true);
+      expect(ids.some((id) => id.name === 'MyMap')).toBe(true);
     });
 
     it('should detect custom macro usage', () => {
       const content = `my_custom_macro!(arg1, arg2);`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'my_custom_macro')).toBe(true);
+      expect(ids.some((id) => id.name === 'my_custom_macro')).toBe(true);
     });
 
     it('should not detect built-in types', () => {
@@ -112,14 +112,14 @@ let m: HashMap<String, i32> = HashMap::new();
 let o: Option<bool> = Some(true);
 let r: Result<(), Error> = Ok(());`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'Vec')).toBe(false);
-      expect(ids.some(id => id.name === 'String')).toBe(false);
-      expect(ids.some(id => id.name === 'HashMap')).toBe(false);
-      expect(ids.some(id => id.name === 'Option')).toBe(false);
-      expect(ids.some(id => id.name === 'Some')).toBe(false);
-      expect(ids.some(id => id.name === 'Result')).toBe(false);
-      expect(ids.some(id => id.name === 'Ok')).toBe(false);
-      expect(ids.some(id => id.name === 'Error')).toBe(false);
+      expect(ids.some((id) => id.name === 'Vec')).toBe(false);
+      expect(ids.some((id) => id.name === 'String')).toBe(false);
+      expect(ids.some((id) => id.name === 'HashMap')).toBe(false);
+      expect(ids.some((id) => id.name === 'Option')).toBe(false);
+      expect(ids.some((id) => id.name === 'Some')).toBe(false);
+      expect(ids.some((id) => id.name === 'Result')).toBe(false);
+      expect(ids.some((id) => id.name === 'Ok')).toBe(false);
+      expect(ids.some((id) => id.name === 'Error')).toBe(false);
     });
 
     it('should not detect Rust keywords', () => {
@@ -130,11 +130,11 @@ let r: Result<(), Error> = Ok(());`;
     }
 }`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'fn')).toBe(false);
-      expect(ids.some(id => id.name === 'let')).toBe(false);
-      expect(ids.some(id => id.name === 'mut')).toBe(false);
-      expect(ids.some(id => id.name === 'if')).toBe(false);
-      expect(ids.some(id => id.name === 'return')).toBe(false);
+      expect(ids.some((id) => id.name === 'fn')).toBe(false);
+      expect(ids.some((id) => id.name === 'let')).toBe(false);
+      expect(ids.some((id) => id.name === 'mut')).toBe(false);
+      expect(ids.some((id) => id.name === 'if')).toBe(false);
+      expect(ids.some((id) => id.name === 'return')).toBe(false);
     });
 
     it('should not detect built-in macros', () => {
@@ -143,17 +143,17 @@ vec![1, 2, 3];
 format!("{}", x);
 panic!("error");`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'println')).toBe(false);
-      expect(ids.some(id => id.name === 'vec')).toBe(false);
-      expect(ids.some(id => id.name === 'format')).toBe(false);
-      expect(ids.some(id => id.name === 'panic')).toBe(false);
+      expect(ids.some((id) => id.name === 'println')).toBe(false);
+      expect(ids.some((id) => id.name === 'vec')).toBe(false);
+      expect(ids.some((id) => id.name === 'format')).toBe(false);
+      expect(ids.some((id) => id.name === 'panic')).toBe(false);
     });
 
     it('should not detect identifiers on use lines', () => {
       const content = `use crate::models::User;
 let x = 5;`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'User')).toBe(false);
+      expect(ids.some((id) => id.name === 'User')).toBe(false);
     });
 
     it('should not detect identifiers on struct/enum/trait definition lines', () => {
@@ -168,9 +168,9 @@ trait MyTrait {
     fn do_thing(&self);
 }`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'MyStruct')).toBe(false);
-      expect(ids.some(id => id.name === 'MyEnum')).toBe(false);
-      expect(ids.some(id => id.name === 'MyTrait')).toBe(false);
+      expect(ids.some((id) => id.name === 'MyStruct')).toBe(false);
+      expect(ids.some((id) => id.name === 'MyEnum')).toBe(false);
+      expect(ids.some((id) => id.name === 'MyTrait')).toBe(false);
     });
 
     it('should not detect common method calls', () => {
@@ -178,9 +178,9 @@ trait MyTrait {
 let s = name.to_string();
 let x = opt.unwrap();`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'collect')).toBe(false);
-      expect(ids.some(id => id.name === 'to_string')).toBe(false);
-      expect(ids.some(id => id.name === 'unwrap')).toBe(false);
+      expect(ids.some((id) => id.name === 'collect')).toBe(false);
+      expect(ids.some((id) => id.name === 'to_string')).toBe(false);
+      expect(ids.some((id) => id.name === 'unwrap')).toBe(false);
     });
 
     it('should not detect primitive types', () => {
@@ -189,16 +189,16 @@ let y: f64 = 3.14;
 let z: bool = true;
 let s: &str = "hello";`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'i32')).toBe(false);
-      expect(ids.some(id => id.name === 'f64')).toBe(false);
-      expect(ids.some(id => id.name === 'bool')).toBe(false);
-      expect(ids.some(id => id.name === 'str')).toBe(false);
+      expect(ids.some((id) => id.name === 'i32')).toBe(false);
+      expect(ids.some((id) => id.name === 'f64')).toBe(false);
+      expect(ids.some((id) => id.name === 'bool')).toBe(false);
+      expect(ids.some((id) => id.name === 'str')).toBe(false);
     });
 
     it('should detect custom function calls', () => {
       const content = `let result = process_data(&items);`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'process_data')).toBe(true);
+      expect(ids.some((id) => id.name === 'process_data')).toBe(true);
     });
 
     it('should not detect fn definition names as identifiers', () => {
@@ -206,7 +206,7 @@ let s: &str = "hello";`;
     items.to_vec()
 }`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'process_data')).toBe(false);
+      expect(ids.some((id) => id.name === 'process_data')).toBe(false);
     });
 
     it('should detect trait name used in impl trait for struct (#35)', () => {
@@ -214,8 +214,8 @@ let s: &str = "hello";`;
     fn serialize(&self) {}
 }`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'Serialize')).toBe(true);
-      expect(ids.some(id => id.name === 'MyStruct')).toBe(true);
+      expect(ids.some((id) => id.name === 'Serialize')).toBe(true);
+      expect(ids.some((id) => id.name === 'MyStruct')).toBe(true);
     });
 
     it('should detect trait in generic impl (#35)', () => {
@@ -223,16 +223,16 @@ let s: &str = "hello";`;
     fn deserialize() -> T { todo!() }
 }`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'Deserialize')).toBe(true);
-      expect(ids.some(id => id.name === 'Config')).toBe(true);
+      expect(ids.some((id) => id.name === 'Deserialize')).toBe(true);
+      expect(ids.some((id) => id.name === 'Config')).toBe(true);
     });
 
     it('should detect lowercase module qualified paths (#41)', () => {
       const content = `let data = fs::read("file.txt").unwrap();
 let addr = net::SocketAddr::new();`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'fs')).toBe(true);
-      expect(ids.some(id => id.name === 'net')).toBe(true);
+      expect(ids.some((id) => id.name === 'fs')).toBe(true);
+      expect(ids.some((id) => id.name === 'net')).toBe(true);
     });
 
     it('should not detect keyword-prefixed qualified paths (#41)', () => {
@@ -240,18 +240,18 @@ let addr = net::SocketAddr::new();`;
 let y = super::parent_fn();
 let z = crate::root_fn();`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'self')).toBe(false);
-      expect(ids.some(id => id.name === 'super')).toBe(false);
-      expect(ids.some(id => id.name === 'crate')).toBe(false);
+      expect(ids.some((id) => id.name === 'self')).toBe(false);
+      expect(ids.some((id) => id.name === 'super')).toBe(false);
+      expect(ids.some((id) => id.name === 'crate')).toBe(false);
     });
 
     it('should not detect identifiers inside strings after stripping (#36)', () => {
       const content = `let s = r##"use fake::Import; MyStruct"##;
 let x = CustomType::new();`;
       const ids = plugin.findUsedIdentifiers(content, 'test.rs');
-      expect(ids.some(id => id.name === 'Import')).toBe(false);
-      expect(ids.some(id => id.name === 'MyStruct')).toBe(false);
-      expect(ids.some(id => id.name === 'CustomType')).toBe(true);
+      expect(ids.some((id) => id.name === 'Import')).toBe(false);
+      expect(ids.some((id) => id.name === 'MyStruct')).toBe(false);
+      expect(ids.some((id) => id.name === 'CustomType')).toBe(true);
     });
   });
 
@@ -261,7 +261,7 @@ let x = CustomType::new();`;
     User { name: name.to_string() }
 }`;
       const exports = plugin.parseExports(content, '/project/src/models.rs');
-      expect(exports.some(e => e.name === 'create_user')).toBe(true);
+      expect(exports.some((e) => e.name === 'create_user')).toBe(true);
     });
 
     it('should detect pub async fn', () => {
@@ -269,7 +269,7 @@ let x = CustomType::new();`;
     Ok(String::new())
 }`;
       const exports = plugin.parseExports(content, '/project/src/api.rs');
-      expect(exports.some(e => e.name === 'fetch_data')).toBe(true);
+      expect(exports.some((e) => e.name === 'fetch_data')).toBe(true);
     });
 
     it('should detect pub struct', () => {
@@ -278,7 +278,7 @@ let x = CustomType::new();`;
     pub email: String,
 }`;
       const exports = plugin.parseExports(content, '/project/src/models.rs');
-      expect(exports.some(e => e.name === 'User')).toBe(true);
+      expect(exports.some((e) => e.name === 'User')).toBe(true);
     });
 
     it('should detect pub enum', () => {
@@ -288,7 +288,7 @@ let x = CustomType::new();`;
     Viewer,
 }`;
       const exports = plugin.parseExports(content, '/project/src/models.rs');
-      expect(exports.some(e => e.name === 'Role')).toBe(true);
+      expect(exports.some((e) => e.name === 'Role')).toBe(true);
     });
 
     it('should detect pub trait', () => {
@@ -296,32 +296,32 @@ let x = CustomType::new();`;
     fn display(&self) -> String;
 }`;
       const exports = plugin.parseExports(content, '/project/src/traits.rs');
-      expect(exports.some(e => e.name === 'Displayable')).toBe(true);
+      expect(exports.some((e) => e.name === 'Displayable')).toBe(true);
     });
 
     it('should detect pub type alias', () => {
       const content = `pub type UserId = u64;`;
       const exports = plugin.parseExports(content, '/project/src/types.rs');
-      expect(exports.some(e => e.name === 'UserId')).toBe(true);
-      expect(exports.find(e => e.name === 'UserId')?.isType).toBe(true);
+      expect(exports.some((e) => e.name === 'UserId')).toBe(true);
+      expect(exports.find((e) => e.name === 'UserId')?.isType).toBe(true);
     });
 
     it('should detect pub const', () => {
       const content = `pub const MAX_USERS: usize = 1000;`;
       const exports = plugin.parseExports(content, '/project/src/config.rs');
-      expect(exports.some(e => e.name === 'MAX_USERS')).toBe(true);
+      expect(exports.some((e) => e.name === 'MAX_USERS')).toBe(true);
     });
 
     it('should detect pub static', () => {
       const content = `pub static DEFAULT_ROLE: &str = "viewer";`;
       const exports = plugin.parseExports(content, '/project/src/config.rs');
-      expect(exports.some(e => e.name === 'DEFAULT_ROLE')).toBe(true);
+      expect(exports.some((e) => e.name === 'DEFAULT_ROLE')).toBe(true);
     });
 
     it('should detect pub static mut', () => {
       const content = `pub static mut COUNTER: u32 = 0;`;
       const exports = plugin.parseExports(content, '/project/src/state.rs');
-      expect(exports.some(e => e.name === 'COUNTER')).toBe(true);
+      expect(exports.some((e) => e.name === 'COUNTER')).toBe(true);
     });
 
     it('should detect pub mod', () => {
@@ -329,7 +329,7 @@ let x = CustomType::new();`;
     pub fn format_name() -> String { String::new() }
 }`;
       const exports = plugin.parseExports(content, '/project/src/lib.rs');
-      expect(exports.some(e => e.name === 'helpers')).toBe(true);
+      expect(exports.some((e) => e.name === 'helpers')).toBe(true);
     });
 
     it('should detect pub(crate) items', () => {
@@ -337,47 +337,47 @@ let x = CustomType::new();`;
     !token.is_empty()
 }`;
       const exports = plugin.parseExports(content, '/project/src/auth.rs');
-      expect(exports.some(e => e.name === 'validate_token')).toBe(true);
+      expect(exports.some((e) => e.name === 'validate_token')).toBe(true);
     });
 
     it('should detect pub unsafe fn (#40)', () => {
       const content = `pub unsafe fn dangerous_op(ptr: *mut u8) {}`;
       const exports = plugin.parseExports(content, '/project/src/ffi.rs');
-      expect(exports.some(e => e.name === 'dangerous_op')).toBe(true);
+      expect(exports.some((e) => e.name === 'dangerous_op')).toBe(true);
     });
 
     it('should detect pub const fn (#40)', () => {
       const content = `pub const fn max_value() -> u32 { u32::MAX }`;
       const exports = plugin.parseExports(content, '/project/src/constants.rs');
-      expect(exports.some(e => e.name === 'max_value')).toBe(true);
+      expect(exports.some((e) => e.name === 'max_value')).toBe(true);
     });
 
     it('should detect pub extern "C" fn (#40)', () => {
       const content = `pub extern "C" fn ffi_init(ctx: *mut Context) -> i32 { 0 }`;
       const exports = plugin.parseExports(content, '/project/src/ffi.rs');
-      expect(exports.some(e => e.name === 'ffi_init')).toBe(true);
+      expect(exports.some((e) => e.name === 'ffi_init')).toBe(true);
     });
 
     it('should detect pub unsafe extern "C" fn (#40)', () => {
       const content = `pub unsafe extern "C" fn raw_alloc(size: usize) -> *mut u8 { std::ptr::null_mut() }`;
       const exports = plugin.parseExports(content, '/project/src/alloc.rs');
-      expect(exports.some(e => e.name === 'raw_alloc')).toBe(true);
+      expect(exports.some((e) => e.name === 'raw_alloc')).toBe(true);
     });
 
     it('should detect pub use re-exports (#42)', () => {
       const content = `pub use crate::models::User;
 pub use crate::services::AuthService;`;
       const exports = plugin.parseExports(content, '/project/src/lib.rs');
-      expect(exports.some(e => e.name === 'User')).toBe(true);
-      expect(exports.some(e => e.name === 'AuthService')).toBe(true);
+      expect(exports.some((e) => e.name === 'User')).toBe(true);
+      expect(exports.some((e) => e.name === 'AuthService')).toBe(true);
     });
 
     it('should detect pub use re-exports with braces (#42)', () => {
       const content = `pub use crate::models::{User, Role, Permission};`;
       const exports = plugin.parseExports(content, '/project/src/lib.rs');
-      expect(exports.some(e => e.name === 'User')).toBe(true);
-      expect(exports.some(e => e.name === 'Role')).toBe(true);
-      expect(exports.some(e => e.name === 'Permission')).toBe(true);
+      expect(exports.some((e) => e.name === 'User')).toBe(true);
+      expect(exports.some((e) => e.name === 'Role')).toBe(true);
+      expect(exports.some((e) => e.name === 'Permission')).toBe(true);
     });
 
     it('should not detect private items (no pub)', () => {
@@ -391,9 +391,9 @@ fn private_helper() -> bool {
 
 const INTERNAL_LIMIT: usize = 50;`;
       const exports = plugin.parseExports(content, '/project/src/internal.rs');
-      expect(exports.some(e => e.name === 'InternalCache')).toBe(false);
-      expect(exports.some(e => e.name === 'private_helper')).toBe(false);
-      expect(exports.some(e => e.name === 'INTERNAL_LIMIT')).toBe(false);
+      expect(exports.some((e) => e.name === 'InternalCache')).toBe(false);
+      expect(exports.some((e) => e.name === 'private_helper')).toBe(false);
+      expect(exports.some((e) => e.name === 'INTERNAL_LIMIT')).toBe(false);
     });
 
     it('should detect multiple pub items in one file', () => {
@@ -405,9 +405,7 @@ pub type Id = u64;
 pub trait Validate { fn validate(&self) -> bool; }`;
       const exports = plugin.parseExports(content, '/project/src/models.rs');
       expect(exports).toHaveLength(6);
-      expect(exports.map(e => e.name).sort()).toEqual(
-        ['Id', 'MAX', 'Role', 'User', 'Validate', 'create_user']
-      );
+      expect(exports.map((e) => e.name).sort()).toEqual(['Id', 'MAX', 'Role', 'User', 'Validate', 'create_user']);
     });
   });
 
@@ -547,7 +545,7 @@ fn main() {}`;
       const result = plugin.insertImports(
         content,
         ['use crate::models::User;', 'use crate::services::AuthService;'],
-        'test.rs'
+        'test.rs',
       );
       const lines = result.split('\n');
       expect(lines[1]).toBe('use crate::models::User;');
@@ -639,6 +637,55 @@ fn main() {}`;
 
     it('should support .rs extension', () => {
       expect(plugin.extensions).toEqual(['.rs']);
+    });
+  });
+
+  describe('FIX #84: Rust nested multiline use trees', () => {
+    it('should parse deeply nested use with self', () => {
+      const content = `use std::{io::{self, Read}, fs};`;
+      const imports = plugin.parseImports(content, 'test.rs');
+      expect(imports.some((i) => i.source === 'std' && i.imports.includes('io'))).toBe(true);
+      expect(imports.some((i) => i.source === 'std::io' && i.imports.includes('Read'))).toBe(true);
+      expect(imports.some((i) => i.source === 'std' && i.imports.includes('fs'))).toBe(true);
+    });
+
+    it('should parse multiline use statement', () => {
+      const content = `use std::{
+    io,
+    fs,
+    collections::HashMap,
+};`;
+      const imports = plugin.parseImports(content, 'test.rs');
+      expect(imports.some((i) => i.source === 'std' && i.imports.includes('io'))).toBe(true);
+      expect(imports.some((i) => i.source === 'std' && i.imports.includes('fs'))).toBe(true);
+      expect(imports.some((i) => i.source === 'std::collections' && i.imports.includes('HashMap'))).toBe(true);
+    });
+
+    it('should parse multiline nested use spanning 3+ lines', () => {
+      const content = `use std::{
+    io::{
+        self,
+        Read,
+        Write,
+    },
+    fs,
+};`;
+      const imports = plugin.parseImports(content, 'test.rs');
+      expect(imports.some((i) => i.source === 'std' && i.imports.includes('io'))).toBe(true);
+      expect(imports.some((i) => i.source === 'std::io' && i.imports.includes('Read'))).toBe(true);
+      expect(imports.some((i) => i.source === 'std::io' && i.imports.includes('Write'))).toBe(true);
+      expect(imports.some((i) => i.source === 'std' && i.imports.includes('fs'))).toBe(true);
+    });
+
+    it('should still parse simple use statements (regression guard)', () => {
+      const content = `use std::io;
+use std::collections::HashMap;`;
+      const imports = plugin.parseImports(content, 'test.rs');
+      expect(imports).toHaveLength(2);
+      expect(imports[0].source).toBe('std');
+      expect(imports[0].imports).toEqual(['io']);
+      expect(imports[1].source).toBe('std::collections');
+      expect(imports[1].imports).toEqual(['HashMap']);
     });
   });
 });
