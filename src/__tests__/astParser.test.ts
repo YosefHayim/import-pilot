@@ -185,4 +185,39 @@ const router = Router();
       expect(isKeyword('withDefaults')).toBe(true);
     });
   });
+
+  describe('FIX #78: optional chaining should not capture method as identifier', () => {
+    it('should not capture method in optional chaining obj?.method()', () => {
+      const content = `
+export function MyComponent() {
+  const result = obj?.method();
+  return <div>{result}</div>;
+}
+`;
+      const result = parser.parse(content);
+      expect(result.usedIdentifiers.some((id) => id.name === 'method')).toBe(false);
+    });
+
+    it('should still not capture method in dot notation obj.method() (regression guard)', () => {
+      const content = `
+export function MyComponent() {
+  const result = obj.method();
+  return <div>{result}</div>;
+}
+`;
+      const result = parser.parse(content);
+      expect(result.usedIdentifiers.some((id) => id.name === 'method')).toBe(false);
+    });
+
+    it('should still capture bare function call method() (regression guard)', () => {
+      const content = `
+export function MyComponent() {
+  const result = method();
+  return <div>{result}</div>;
+}
+`;
+      const result = parser.parse(content);
+      expect(result.usedIdentifiers.some((id) => id.name === 'method')).toBe(true);
+    });
+  });
 });

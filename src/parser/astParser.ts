@@ -97,7 +97,7 @@ export class AstParser {
     // Pattern to find JSX components (capitalized) and function calls
     // Only match when used in JSX context or called as functions
     const jsxComponentRegex = /<([A-Z][a-zA-Z0-9]*)/g;
-    const functionCallRegex = /(?<![.\w])([a-z][a-zA-Z0-9]*)\s*\(/g;
+    const functionCallRegex = /(?<![.?\w])([a-z][a-zA-Z0-9]*)\s*\(/g;
 
     lines.forEach((line, lineIndex) => {
       // Skip import/export lines and comments
