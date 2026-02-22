@@ -339,6 +339,33 @@ end`;
     });
   });
 
+  describe('FIX #87: Elixir defimpl detection', () => {
+    it('should detect defimpl String.Chars as export', () => {
+      const content = `defimpl String.Chars, for: MyStruct do
+  def to_string(struct) do
+    "my_struct"
+  end
+end`;
+      const exports = plugin.parseExports(content, '/project/lib/my_struct.ex');
+      expect(exports.some((e) => e.name === 'Chars')).toBe(true);
+      expect(exports.some((e) => e.name === 'String.Chars')).toBe(true);
+    });
+
+    it('should still detect defmodule (regression guard)', () => {
+      const content = `defmodule Foo do
+end`;
+      const exports = plugin.parseExports(content, '/project/lib/foo.ex');
+      expect(exports.some((e) => e.name === 'Foo')).toBe(true);
+    });
+
+    it('should detect simple defimpl with single-segment name', () => {
+      const content = `defimpl Enumerable, for: MyList do
+end`;
+      const exports = plugin.parseExports(content, '/project/lib/my_list.ex');
+      expect(exports.some((e) => e.name === 'Enumerable')).toBe(true);
+    });
+  });
+
   describe('isBuiltInOrKeyword', () => {
     it('should return true for Elixir core modules', () => {
       expect(plugin.isBuiltInOrKeyword('Kernel')).toBe(true);

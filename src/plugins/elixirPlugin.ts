@@ -149,6 +149,16 @@ export class ElixirPlugin implements LanguagePlugin {
       exports.push({ name, source: filePath, isDefault: false });
     }
 
+    const defimplRegex = /^\s*defimpl\s+([\w.]+)/gm;
+    while ((match = defimplRegex.exec(content)) !== null) {
+      const fullName = match[1];
+      const shortName = fullName.split('.').pop()!;
+      exports.push({ name: shortName, source: filePath, isDefault: false });
+      if (fullName !== shortName) {
+        exports.push({ name: fullName, source: filePath, isDefault: false });
+      }
+    }
+
     return exports;
   }
 
