@@ -10,6 +10,7 @@ export interface ExportInfo {
   source: string;
   isDefault: boolean;
   isType?: boolean;
+  reExportSource?: string;
 }
 
 export interface ResolverOptions {
@@ -80,6 +81,40 @@ export class ImportResolver {
             console.warn(`Warning: Could not read file ${filePath}: ${msg}`);
           }
         }
+      }
+    }
+
+    // Second pass: resolve export * re-exports (1 level only)
+    for (const [filePath, fileExports] of this.exportCache.entries()) {
+      const starReExports = fileExports.filter((e) => e.name === '*' && e.reExportSource);
+      if (starReExports.length === 0) continue;
+
+      const additionalExports: ExportInfo[] = [];
+      for (const starExport of starReExports) {
+        const sourcePath = starExport.reExportSource!;
+        // Skip external packages (only resolve relative paths)
+        if (!sourcePath.startsWith('.') && !sourcePath.startsWith('/')) continue;
+
+        const resolvedSource = this.resolveModulePath(filePath, sourcePath);
+        if (resolvedSource) {
+          const sourceExports = this.exportCache.get(resolvedSource);
+          if (sourceExports) {
+            for (const exp of sourceExports) {
+              // Don't copy star re-exports (1 level only, no transitive)
+              if (exp.name === '*' && exp.reExportSource) continue;
+              additionalExports.push({ ...exp, source: filePath });
+            }
+          }
+        }
+      }
+
+      // Remove star sentinel entries and add resolved exports
+      const filtered = fileExports.filter((e) => !(e.name === '*' && e.reExportSource));
+      filtered.push(...additionalExports);
+      if (filtered.length > 0) {
+        this.exportCache.set(filePath, filtered);
+      } else {
+        this.exportCache.delete(filePath);
       }
     }
   }
@@ -221,6 +256,28 @@ export class ImportResolver {
     }
 
     return relativePath;
+  }
+
+  private resolveModulePath(fromFile: string, source: string): string | null {
+    const dir = path.dirname(fromFile);
+    const basePath = path.resolve(dir, source);
+
+    // Try exact match
+    if (this.exportCache.has(basePath)) return basePath;
+
+    // Try with extensions
+    for (const ext of this.options.extensions!) {
+      const withExt = basePath + ext;
+      if (this.exportCache.has(withExt)) return withExt;
+    }
+
+    // Try index files
+    for (const ext of this.options.extensions!) {
+      const indexPath = path.join(basePath, 'index' + ext);
+      if (this.exportCache.has(indexPath)) return indexPath;
+    }
+
+    return null;
   }
 
   getExportCache(): Map<string, ExportInfo[]> {

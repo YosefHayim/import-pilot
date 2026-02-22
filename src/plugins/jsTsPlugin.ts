@@ -74,6 +74,25 @@ export class JsTsPlugin implements LanguagePlugin {
       });
     }
 
+    // Star re-export: export * from './module'
+    const reExportStarRegex = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
+    while ((match = reExportStarRegex.exec(scriptContent)) !== null) {
+      exports.push({ name: '*', source: filePath, isDefault: false, reExportSource: match[1] });
+    }
+
+    // Type re-export: export type { T, U } from './types'
+    const reExportTypeRegex = /export\s+type\s+\{([^}]+)\}\s*from\s+['"]([^'"]+)['"]/g;
+    while ((match = reExportTypeRegex.exec(scriptContent)) !== null) {
+      const names = match[1]
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      names.forEach((name) => {
+        const parts = name.split(/\s+as\s+/);
+        const exportedName = parts[parts.length - 1];
+        exports.push({ name: exportedName, source: filePath, isDefault: false, isType: true });
+      });
+    }
     return exports;
   }
 
@@ -167,5 +186,5 @@ export class JsTsPlugin implements LanguagePlugin {
     }
 
     return lastImportLine >= 0 ? lastImportLine + 1 : firstCodeLine;
-   }
+  }
 }

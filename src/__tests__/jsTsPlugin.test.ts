@@ -577,4 +577,71 @@ const el = <Card />;`;
       expect(ids.some((id) => id.name === 'Card')).toBe(true);
     });
   });
+
+  describe('FIX #79: re-exports resolved in export cache', () => {
+    it('should detect export * from module as star re-export', () => {
+      const content = `export * from './utils';`;
+      const exports = plugin.parseExports(content, 'test.ts');
+      const starExport = exports.find((e) => e.name === '*');
+      expect(starExport).toBeDefined();
+      expect(starExport!.reExportSource).toBe('./utils');
+    });
+
+    it('should detect export { Button } from module', () => {
+      const content = `export { Button } from './Button';`;
+      const exports = plugin.parseExports(content, 'test.ts');
+      expect(exports.some((e) => e.name === 'Button')).toBe(true);
+    });
+
+    it('should detect export { default as MainButton } from module', () => {
+      const content = `export { default as MainButton } from './Button';`;
+      const exports = plugin.parseExports(content, 'test.ts');
+      expect(exports.some((e) => e.name === 'MainButton')).toBe(true);
+    });
+
+    it('should detect export type { MyType } from module with isType', () => {
+      const content = `export type { MyType } from './types';`;
+      const exports = plugin.parseExports(content, 'test.ts');
+      const match = exports.find((e) => e.name === 'MyType');
+      expect(match).toBeDefined();
+      expect(match!.isType).toBe(true);
+    });
+
+    it('should detect multiple type re-exports', () => {
+      const content = `export type { TypeA, TypeB } from './types';`;
+      const exports = plugin.parseExports(content, 'test.ts');
+      expect(exports.some((e) => e.name === 'TypeA' && e.isType)).toBe(true);
+      expect(exports.some((e) => e.name === 'TypeB' && e.isType)).toBe(true);
+    });
+
+    it('should detect aliased type re-export', () => {
+      const content = `export type { Foo as Bar } from './types';`;
+      const exports = plugin.parseExports(content, 'test.ts');
+      expect(exports.some((e) => e.name === 'Bar' && e.isType)).toBe(true);
+    });
+
+    it('should still detect regular exports (regression guard)', () => {
+      const content = `export function helper() {}
+export const VALUE = 42;
+export class Service {}
+export interface Config {}
+export type ID = string;`;
+      const exports = plugin.parseExports(content, 'test.ts');
+      expect(exports.some((e) => e.name === 'helper')).toBe(true);
+      expect(exports.some((e) => e.name === 'VALUE')).toBe(true);
+      expect(exports.some((e) => e.name === 'Service')).toBe(true);
+      expect(exports.some((e) => e.name === 'Config')).toBe(true);
+      expect(exports.some((e) => e.name === 'ID')).toBe(true);
+    });
+
+    it('should detect multiple star re-exports', () => {
+      const content = `export * from './utils';
+export * from './helpers';`;
+      const exports = plugin.parseExports(content, 'test.ts');
+      const starExports = exports.filter((e) => e.name === '*');
+      expect(starExports).toHaveLength(2);
+      expect(starExports.some((e) => e.reExportSource === './utils')).toBe(true);
+      expect(starExports.some((e) => e.reExportSource === './helpers')).toBe(true);
+    });
+  });
 });
