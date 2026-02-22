@@ -500,4 +500,69 @@ export { foo, baz };
       }
     });
   });
+
+  describe('FIX #88: collision warning', () => {
+    it('should warn when two files export the same name and verbose=true', () => {
+      const resolver = new ImportResolver({ projectRoot: '/test', verbose: true });
+      const cache = resolver.getExportCache();
+      cache.set('/test/a.ts', [{ name: 'Button', source: '/test/a.ts', isDefault: false }]);
+      cache.set('/test/b.ts', [{ name: 'Button', source: '/test/b.ts', isDefault: false }]);
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        resolver.resolveImport('Button', '/test/app.ts');
+        expect(warnSpy).toHaveBeenCalled();
+        const warningCall = warnSpy.mock.calls.find((call) =>
+          String(call[0]).includes('Warning: "Button" exported from multiple files'),
+        );
+        expect(warningCall).toBeDefined();
+        expect(String(warningCall![0])).toContain('/test/a.ts');
+        expect(String(warningCall![0])).toContain('/test/b.ts');
+        expect(String(warningCall![0])).toContain('Using first match.');
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('should return the first match when multiple files export the same name', () => {
+      const resolver = new ImportResolver({ projectRoot: '/test', verbose: false });
+      const cache = resolver.getExportCache();
+      cache.set('/test/a.ts', [{ name: 'Button', source: '/test/a.ts', isDefault: false }]);
+      cache.set('/test/b.ts', [{ name: 'Button', source: '/test/b.ts', isDefault: false }]);
+
+      const result = resolver.resolveImport('Button', '/test/app.ts');
+      expect(result).not.toBeNull();
+      expect(result!.source).toBe('./a');
+    });
+
+    it('should not warn when export name is unique', () => {
+      const resolver = new ImportResolver({ projectRoot: '/test', verbose: true });
+      const cache = resolver.getExportCache();
+      cache.set('/test/a.ts', [{ name: 'Button', source: '/test/a.ts', isDefault: false }]);
+      cache.set('/test/b.ts', [{ name: 'Card', source: '/test/b.ts', isDefault: false }]);
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        resolver.resolveImport('Button', '/test/app.ts');
+        expect(warnSpy).not.toHaveBeenCalled();
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('should not warn when verbose=false even with duplicate exports', () => {
+      const resolver = new ImportResolver({ projectRoot: '/test', verbose: false });
+      const cache = resolver.getExportCache();
+      cache.set('/test/a.ts', [{ name: 'Button', source: '/test/a.ts', isDefault: false }]);
+      cache.set('/test/b.ts', [{ name: 'Button', source: '/test/b.ts', isDefault: false }]);
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        resolver.resolveImport('Button', '/test/app.ts');
+        expect(warnSpy).not.toHaveBeenCalled();
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+  });
 });

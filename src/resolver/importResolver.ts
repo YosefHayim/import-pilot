@@ -32,6 +32,8 @@ export class ImportResolver {
   private options: ResolverOptions;
   private pathAliases: PathAlias[] = [];
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private chalkInstance: any = null;
   constructor(options: ResolverOptions) {
     this.options = {
       extensions: ['.ts', '.tsx', '.js', '.jsx'],
@@ -41,6 +43,14 @@ export class ImportResolver {
   }
 
   async buildExportCache(): Promise<void> {
+    // Cache chalk for synchronous use in resolveImport()
+    try {
+      const { default: chalk } = await import('chalk');
+      this.chalkInstance = chalk;
+    } catch {
+      // chalk not available — warnings will be plain text
+    }
+
     if (this.options.useAliases) {
       await this.loadPathAliases();
     }
@@ -120,20 +130,37 @@ export class ImportResolver {
   }
 
   resolveImport(identifier: string, currentFile: string): ExportInfo | null {
+    // Collect all files that export this identifier (FIX #88)
+    const allMatches: { filePath: string; exportInfo: ExportInfo }[] = [];
     for (const [filePath, exports] of this.exportCache.entries()) {
       if (filePath === currentFile) continue;
 
       const matchingExport = exports.find((exp) => exp.name === identifier);
       if (matchingExport) {
-        const relativePath = this.getRelativeImportPath(currentFile, filePath);
-        return {
-          ...matchingExport,
-          source: relativePath,
-        };
+        allMatches.push({ filePath, exportInfo: matchingExport });
       }
     }
 
-    return null;
+    if (allMatches.length === 0) return null;
+
+    // Warn about ambiguous same-name exports when verbose
+    if (allMatches.length > 1 && this.options.verbose) {
+      const paths = allMatches.map((m) => m.filePath).join(', ');
+      const warning = `Warning: "${identifier}" exported from multiple files: ${paths}. Using first match.`;
+      if (this.chalkInstance) {
+        console.warn(this.chalkInstance.yellow(warning));
+      } else {
+        console.warn(warning);
+      }
+    }
+
+    // First-match-wins behavior (unchanged)
+    const firstMatch = allMatches[0];
+    const relativePath = this.getRelativeImportPath(currentFile, firstMatch.filePath);
+    return {
+      ...firstMatch.exportInfo,
+      source: relativePath,
+    };
   }
 
   private parseExportsLegacy(content: string, filePath: string): ExportInfo[] {
