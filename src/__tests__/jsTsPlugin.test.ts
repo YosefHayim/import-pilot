@@ -542,4 +542,39 @@ const data = fetchData();
       expect(ids.some((id) => id.name === 'fetchData')).toBe(true);
     });
   });
+
+  describe('FIX #77: TypeScript decorator identifiers detected as used', () => {
+    it('should detect @Component decorator as used identifier', () => {
+      const content = `@Component({ selector: 'app-root' })
+class AppComponent {}`;
+      const ids = plugin.findUsedIdentifiers(content, 'test.ts');
+      expect(ids.some((id) => id.name === 'Component')).toBe(true);
+    });
+
+    it('should detect @Injectable decorator as used identifier', () => {
+      const content = `@Injectable()
+class MyService {}`;
+      const ids = plugin.findUsedIdentifiers(content, 'test.ts');
+      expect(ids.some((id) => id.name === 'Injectable')).toBe(true);
+    });
+
+    it('should NOT detect lowercase decorators like @deprecated', () => {
+      const content = `@deprecated
+class OldService {}`;
+      const ids = plugin.findUsedIdentifiers(content, 'test.ts');
+      expect(ids.some((id) => id.name === 'deprecated')).toBe(false);
+    });
+
+    it('should still detect JSX components and function calls alongside decorators', () => {
+      const content = `@Injectable()
+class MyService {
+  getData() { return formatName('test'); }
+}
+const el = <Card />;`;
+      const ids = plugin.findUsedIdentifiers(content, 'test.tsx');
+      expect(ids.some((id) => id.name === 'Injectable')).toBe(true);
+      expect(ids.some((id) => id.name === 'formatName')).toBe(true);
+      expect(ids.some((id) => id.name === 'Card')).toBe(true);
+    });
+  });
 });

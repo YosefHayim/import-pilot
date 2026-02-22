@@ -107,6 +107,7 @@ export class AstParser {
     // Only match when used in JSX context or called as functions
     const jsxComponentRegex = /<([A-Z][a-zA-Z0-9]*)/g;
     const functionCallRegex = /(?<![.?\w])([a-z][a-zA-Z0-9]*)\s*\(/g;
+    const decoratorRegex = /@([A-Z]\w*)/g;
 
     lines.forEach((line, lineIndex) => {
       // Skip import/export lines and comments
@@ -129,6 +130,15 @@ export class AstParser {
         });
       }
 
+      // Find TypeScript decorators (@Component, @Injectable, etc.)
+      // Only captures PascalCase names (uppercase first letter)
+      while ((match = decoratorRegex.exec(line)) !== null) {
+        identifiers.push({
+          name: match[1],
+          line: lineIndex + 1,
+          column: match.index,
+        });
+      }
       // Find function calls (camelCase starting with lowercase)
       // Skip if preceded by a dot (method calls)
       const functionsInLine = [];
