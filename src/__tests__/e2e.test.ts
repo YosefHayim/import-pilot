@@ -355,3 +355,103 @@ describe('E2E: CLI pipeline', () => {
     });
   });
 });
+
+describe('E2E: File modification (non-dry-run)', () => {
+  let tmpDir: string;
+
+  function copyFixture(fixtureName: string): string {
+    const src = path.join(ROOT, 'tests', fixtureName);
+    const dest = path.join(tmpDir, fixtureName);
+    fs.cpSync(src, dest, { recursive: true });
+    return dest;
+  }
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'import-pilot-e2e-mod-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should insert missing imports into files when run without --dry-run', () => {
+    const fixture = copyFixture('e2e-fixture');
+    const homeBefore = fs.readFileSync(path.join(fixture, 'pages', 'Home.tsx'), 'utf-8');
+    expect(homeBefore).not.toContain('import');
+
+    run([fixture]);
+
+    const homeAfter = fs.readFileSync(path.join(fixture, 'pages', 'Home.tsx'), 'utf-8');
+    expect(homeAfter).toContain("import { formatName } from '../utils/format'");
+    expect(homeAfter).toContain("import { add } from '../utils/math'");
+    expect(homeAfter).toContain("import { Card } from '../components/Card'");
+    expect(homeAfter).toContain("import { Button } from '../components/Button'");
+    expect(homeAfter).toContain("import Header from '../components/Header'");
+    // Original code still present
+    expect(homeAfter).toContain('export function HomePage()');
+  });
+
+  it('should not insert duplicate imports when file already has all imports', () => {
+    const fixture = copyFixture('sample-project');
+    const profileBefore = fs.readFileSync(path.join(fixture, 'components', 'UserProfile.tsx'), 'utf-8');
+
+    run([fixture]);
+
+    const profileAfter = fs.readFileSync(path.join(fixture, 'components', 'UserProfile.tsx'), 'utf-8');
+    expect(profileAfter).toBe(profileBefore);
+  });
+
+  it('should not modify files that have no missing imports', () => {
+    const fixture = copyFixture('e2e-fixture');
+    const formatBefore = fs.readFileSync(path.join(fixture, 'utils', 'format.ts'), 'utf-8');
+    const mathBefore = fs.readFileSync(path.join(fixture, 'utils', 'math.ts'), 'utf-8');
+
+    run([fixture]);
+
+    const formatAfter = fs.readFileSync(path.join(fixture, 'utils', 'format.ts'), 'utf-8');
+    const mathAfter = fs.readFileSync(path.join(fixture, 'utils', 'math.ts'), 'utf-8');
+    expect(formatAfter).toBe(formatBefore);
+    expect(mathAfter).toBe(mathBefore);
+  });
+
+  it('should not modify files when --dry-run is passed', () => {
+    const fixture = copyFixture('e2e-fixture');
+    const homeBefore = fs.readFileSync(path.join(fixture, 'pages', 'Home.tsx'), 'utf-8');
+    const aboutBefore = fs.readFileSync(path.join(fixture, 'pages', 'About.tsx'), 'utf-8');
+
+    run(['--dry-run', fixture]);
+
+    const homeAfter = fs.readFileSync(path.join(fixture, 'pages', 'Home.tsx'), 'utf-8');
+    const aboutAfter = fs.readFileSync(path.join(fixture, 'pages', 'About.tsx'), 'utf-8');
+    expect(homeAfter).toBe(homeBefore);
+    expect(aboutAfter).toBe(aboutBefore);
+  });
+
+  it('should not produce duplicate imports on a second run', () => {
+    const fixture = copyFixture('e2e-fixture');
+
+    // First run — inserts imports
+    run([fixture]);
+    const homeAfterFirst = fs.readFileSync(path.join(fixture, 'pages', 'Home.tsx'), 'utf-8');
+    expect(homeAfterFirst).toContain("import { formatName } from '../utils/format'");
+
+    // Second run — should be idempotent
+    run([fixture]);
+    const homeAfterSecond = fs.readFileSync(path.join(fixture, 'pages', 'Home.tsx'), 'utf-8');
+    expect(homeAfterSecond).toBe(homeAfterFirst);
+  });
+
+  it('should insert imports into About.tsx for formatDate and Card', () => {
+    const fixture = copyFixture('e2e-fixture');
+    const aboutBefore = fs.readFileSync(path.join(fixture, 'pages', 'About.tsx'), 'utf-8');
+    expect(aboutBefore).not.toContain('import');
+
+    run([fixture]);
+
+    const aboutAfter = fs.readFileSync(path.join(fixture, 'pages', 'About.tsx'), 'utf-8');
+    expect(aboutAfter).toContain("import { formatDate } from '../utils/format'");
+    expect(aboutAfter).toContain("import { Card } from '../components/Card'");
+    // Original code still present
+    expect(aboutAfter).toContain('export function AboutPage()');
+  });
+});
