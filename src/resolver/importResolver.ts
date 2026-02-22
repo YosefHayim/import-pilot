@@ -219,24 +219,21 @@ export class ImportResolver {
   private async loadPathAliases(): Promise<void> {
     try {
       const tsconfigPath = path.join(this.options.projectRoot, 'tsconfig.json');
-      const content = await fs.readFile(tsconfigPath, 'utf-8');
-      const tsconfig = JSON.parse(stripJsonComments(content));
+      // FIX #91: Follow tsconfig extends chain to merge compilerOptions
+      const compilerOptions = await this.resolveTsconfigCompilerOptions(tsconfigPath, 5);
 
-      const baseUrl = tsconfig.compilerOptions?.baseUrl || '.';
-      const paths: Record<string, string[]> = tsconfig.compilerOptions?.paths || {};
+      const baseUrl = (compilerOptions.baseUrl as string) || '.';
+      const paths: Record<string, string[]> = (compilerOptions.paths as Record<string, string[]>) || {};
       const resolvedBaseUrl = path.resolve(this.options.projectRoot, baseUrl);
 
       // FIX #90: Store baseUrl for non-relative import resolution
-      if (tsconfig.compilerOptions?.baseUrl) {
-        this.baseUrl = tsconfig.compilerOptions.baseUrl;
+      if (compilerOptions.baseUrl) {
+        this.baseUrl = compilerOptions.baseUrl as string;
       }
-
       for (const [aliasPattern, targets] of Object.entries(paths)) {
         if (!Array.isArray(targets) || targets.length === 0) continue;
-
         const target = targets[0];
         const hasWildcard = aliasPattern.includes('*');
-
         if (hasWildcard) {
           this.pathAliases.push({
             pattern: aliasPattern,
@@ -251,12 +248,49 @@ export class ImportResolver {
           });
         }
       }
-
       this.pathAliases.sort((a, b) => b.prefix.length - a.prefix.length);
     } catch {
       this.pathAliases = [];
       this.baseUrl = undefined;
     }
+  }
+
+  // FIX #91: Recursively resolve tsconfig extends chain, merging compilerOptions (child overrides parent)
+  private async resolveTsconfigCompilerOptions(
+    tsconfigPath: string,
+    maxDepth: number,
+  ): Promise<Record<string, unknown>> {
+    const content = await fs.readFile(tsconfigPath, 'utf-8');
+    const tsconfig = JSON.parse(stripJsonComments(content));
+    const compilerOptions: Record<string, unknown> = { ...(tsconfig.compilerOptions || {}) };
+
+    if (typeof tsconfig.extends === 'string' && maxDepth > 0) {
+      const extendsValue = tsconfig.extends;
+      let parentPath: string;
+
+      if (extendsValue.startsWith('.') || extendsValue.startsWith('/')) {
+        // Relative or absolute path
+        parentPath = path.resolve(path.dirname(tsconfigPath), extendsValue);
+      } else {
+        // Package reference (e.g. @tsconfig/node18)
+        parentPath = path.join(this.options.projectRoot, 'node_modules', extendsValue, 'tsconfig.json');
+      }
+
+      // Add .json extension if not present
+      if (!parentPath.endsWith('.json')) {
+        parentPath += '.json';
+      }
+
+      try {
+        const parentOptions = await this.resolveTsconfigCompilerOptions(parentPath, maxDepth - 1);
+        // Parent as base, child overrides
+        return { ...parentOptions, ...compilerOptions };
+      } catch {
+        // Parent config not found — use child's options only
+      }
+    }
+
+    return compilerOptions;
   }
 
   private getAliasImportPath(toFile: string): string | null {

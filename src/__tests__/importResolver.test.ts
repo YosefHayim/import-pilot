@@ -654,4 +654,255 @@ export { foo, baz };
       }
     });
   });
+
+  describe('FIX #91: tsconfig extends chain', () => {
+    it('should inherit paths from base tsconfig via extends', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_extends_base_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+
+      // Base tsconfig with paths
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.base.json'),
+        JSON.stringify({
+          compilerOptions: {
+            baseUrl: '.',
+            paths: { '@/*': ['src/*'] },
+          },
+        }),
+      );
+
+      // Child tsconfig extending base
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.json'),
+        JSON.stringify({
+          extends: './tsconfig.base.json',
+          compilerOptions: {
+            strict: true,
+          },
+        }),
+      );
+
+      const srcDir = path.join(tmpDir, 'src');
+      await fs.mkdir(srcDir, { recursive: true });
+      await fs.writeFile(path.join(srcDir, 'util.ts'), 'export function helper() {}');
+
+      try {
+        const resolver = new ImportResolver({ projectRoot: tmpDir });
+        await resolver.buildExportCache();
+
+        const aliases = resolver.getPathAliases();
+        expect(aliases.length).toBe(1);
+        expect(aliases[0].pattern).toBe('@/*');
+
+        const resolution = resolver.resolveImport('helper', path.join(tmpDir, 'src', 'app.ts'));
+        expect(resolution).not.toBeNull();
+        expect(resolution!.source).toBe('@/util');
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should let child override parent baseUrl', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_extends_override_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+
+      // Base with baseUrl: 'lib'
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.base.json'),
+        JSON.stringify({
+          compilerOptions: {
+            baseUrl: 'lib',
+          },
+        }),
+      );
+
+      // Child overrides with baseUrl: 'src'
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.json'),
+        JSON.stringify({
+          extends: './tsconfig.base.json',
+          compilerOptions: {
+            baseUrl: 'src',
+          },
+        }),
+      );
+
+      const srcDir = path.join(tmpDir, 'src', 'utils');
+      await fs.mkdir(srcDir, { recursive: true });
+      await fs.writeFile(path.join(srcDir, 'helper.ts'), 'export function helper() {}');
+
+      try {
+        const resolver = new ImportResolver({ projectRoot: tmpDir });
+        await resolver.buildExportCache();
+
+        const resolution = resolver.resolveImport('helper', path.join(tmpDir, 'src', 'app.ts'));
+        expect(resolution).not.toBeNull();
+        expect(resolution!.source).toBe('utils/helper');
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should merge 3-level extends chain correctly', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_extends_3level_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+
+      // Grandparent: baseUrl and a path
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.root.json'),
+        JSON.stringify({
+          compilerOptions: {
+            baseUrl: '.',
+            paths: { '@utils/*': ['src/utils/*'] },
+          },
+        }),
+      );
+
+      // Parent: overrides paths (adds @/* while keeping @utils/*), inherits baseUrl
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.base.json'),
+        JSON.stringify({
+          extends: './tsconfig.root.json',
+          compilerOptions: {
+            paths: { '@/*': ['src/*'], '@utils/*': ['src/utils/*'] },
+          },
+        }),
+      );
+
+      // Child: inherits all
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.json'),
+        JSON.stringify({
+          extends: './tsconfig.base.json',
+          compilerOptions: {
+            strict: true,
+          },
+        }),
+      );
+
+      const srcDir = path.join(tmpDir, 'src', 'utils');
+      await fs.mkdir(srcDir, { recursive: true });
+      await fs.writeFile(path.join(srcDir, 'helper.ts'), 'export function helper() {}');
+
+      try {
+        const resolver = new ImportResolver({ projectRoot: tmpDir });
+        await resolver.buildExportCache();
+
+        const aliases = resolver.getPathAliases();
+        expect(aliases.length).toBe(2);
+        expect(aliases.some((a) => a.pattern === '@/*')).toBe(true);
+        expect(aliases.some((a) => a.pattern === '@utils/*')).toBe(true);
+
+        const resolution = resolver.resolveImport('helper', path.join(tmpDir, 'src', 'app.ts'));
+        expect(resolution).not.toBeNull();
+        expect(resolution!.source).toBe('@utils/helper');
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should work normally when no extends field exists (regression guard)', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_extends_noextends_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            baseUrl: '.',
+            paths: { '@/*': ['src/*'] },
+          },
+        }),
+      );
+
+      const srcDir = path.join(tmpDir, 'src');
+      await fs.mkdir(srcDir, { recursive: true });
+      await fs.writeFile(path.join(srcDir, 'util.ts'), 'export function helper() {}');
+
+      try {
+        const resolver = new ImportResolver({ projectRoot: tmpDir });
+        await resolver.buildExportCache();
+
+        const aliases = resolver.getPathAliases();
+        expect(aliases.length).toBe(1);
+        expect(aliases[0].pattern).toBe('@/*');
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should stop at 5 levels deep and use what it has', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_extends_depth_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+
+      // Level 7 (deepest) has paths — should NOT be reached (beyond 5 extends)
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.l7.json'),
+        JSON.stringify({
+          compilerOptions: {
+            paths: { '@deep/*': ['deep/*'] },
+          },
+        }),
+      );
+
+      // Level 6 extends 7
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.l6.json'),
+        JSON.stringify({ extends: './tsconfig.l7.json', compilerOptions: {} }),
+      );
+
+      // Level 5 extends 6
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.l5.json'),
+        JSON.stringify({ extends: './tsconfig.l6.json', compilerOptions: {} }),
+      );
+
+      // Level 4 extends 5
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.l4.json'),
+        JSON.stringify({ extends: './tsconfig.l5.json', compilerOptions: {} }),
+      );
+
+      // Level 3 extends 4
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.l3.json'),
+        JSON.stringify({ extends: './tsconfig.l4.json', compilerOptions: {} }),
+      );
+
+      // Level 2 extends 3 — has @/* paths (within 5-level reach)
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.l2.json'),
+        JSON.stringify({
+          extends: './tsconfig.l3.json',
+          compilerOptions: {
+            baseUrl: '.',
+            paths: { '@/*': ['src/*'] },
+          },
+        }),
+      );
+
+      // Root tsconfig extends level 2
+      await fs.writeFile(
+        path.join(tmpDir, 'tsconfig.json'),
+        JSON.stringify({ extends: './tsconfig.l2.json', compilerOptions: {} }),
+      );
+
+      const srcDir = path.join(tmpDir, 'src');
+      await fs.mkdir(srcDir, { recursive: true });
+      await fs.writeFile(path.join(srcDir, 'util.ts'), 'export function helper() {}');
+
+      try {
+        const resolver = new ImportResolver({ projectRoot: tmpDir });
+        await resolver.buildExportCache();
+
+        const aliases = resolver.getPathAliases();
+        // @/* from level 2 should be reached (within 5 extends)
+        expect(aliases.some((a) => a.pattern === '@/*')).toBe(true);
+        // @deep/* from level 7 should NOT be reached (beyond 5 extends)
+        expect(aliases.some((a) => a.pattern === '@deep/*')).toBe(false);
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+  });
 });
