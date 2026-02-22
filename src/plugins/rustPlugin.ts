@@ -221,6 +221,11 @@ export class RustPlugin implements LanguagePlugin {
       }
     }
 
+    // #[macro_export] macro_rules! name — only exported if preceded by #[macro_export]
+    const macroExportRegex = /#\[macro_export\][\s\S]*?macro_rules!\s+(\w+)/g;
+    while ((match = macroExportRegex.exec(stripped)) !== null) {
+      exports.push({ name: match[1], source: filePath, isDefault: false });
+    }
     return exports;
   }
 

@@ -688,4 +688,52 @@ use std::collections::HashMap;`;
       expect(imports[1].imports).toEqual(['HashMap']);
     });
   });
+
+  // ─── FIX #85: Rust macro_rules! exports ────────────────────────────
+  describe('FIX #85: Rust macro_rules! exports', () => {
+    it('should detect macro_rules! with #[macro_export] as an export', () => {
+      const content = `#[macro_export]
+macro_rules! my_vec {
+    ($($x:expr),*) => {
+        vec![$($x),*]
+    };
+}`;
+      const exports = plugin.parseExports(content, 'macros.rs');
+      const names = exports.map((e) => e.name);
+      expect(names).toContain('my_vec');
+    });
+
+    it('should NOT detect macro_rules! without #[macro_export]', () => {
+      const content = `macro_rules! private_macro {
+    () => {};
+}`;
+      const exports = plugin.parseExports(content, 'macros.rs');
+      const names = exports.map((e) => e.name);
+      expect(names).not.toContain('private_macro');
+    });
+
+    it('should detect macro_rules! with whitespace/newlines after #[macro_export]', () => {
+      const content = `#[macro_export]
+
+macro_rules! spaced_macro {
+    () => {};
+}`;
+      const exports = plugin.parseExports(content, 'macros.rs');
+      const names = exports.map((e) => e.name);
+      expect(names).toContain('spaced_macro');
+    });
+
+    it('should detect macro_rules! alongside regular pub fn exports', () => {
+      const content = `pub fn helper() -> bool { true }
+
+#[macro_export]
+macro_rules! my_assert {
+    ($e:expr) => { assert!($e) };
+}`;
+      const exports = plugin.parseExports(content, 'lib.rs');
+      const names = exports.map((e) => e.name);
+      expect(names).toContain('helper');
+      expect(names).toContain('my_assert');
+    });
+  });
 });

@@ -43,6 +43,29 @@ export class PythonPlugin implements LanguagePlugin {
   findUsedIdentifiers(content: string, _filePath: string): UsedIdentifier[] {
     const identifiers: UsedIdentifier[] = [];
     const stripped = content.replace(/"""[\s\S]*?"""/g, '').replace(/'''[\s\S]*?'''/g, '');
+
+    // Extract identifiers from f-string expressions before line processing
+    const fstringDblRegex = /\bf"((?:[^"\\]|\\.)*)"/g;
+    const fstringSglRegex = /\bf'((?:[^'\\]|\\.)*)'/g;
+    const braceContentRegex = /\{([^}]+)\}/g;
+    for (const fstrRegex of [fstringDblRegex, fstringSglRegex]) {
+      let fstrMatch;
+      while ((fstrMatch = fstrRegex.exec(stripped)) !== null) {
+        const fstrContent = fstrMatch[1];
+        let braceMatch;
+        braceContentRegex.lastIndex = 0;
+        while ((braceMatch = braceContentRegex.exec(fstrContent)) !== null) {
+          const expr = braceMatch[1].trim();
+          const identMatch = expr.match(/^([a-zA-Z_]\w*)/);
+          if (identMatch && !this.isBuiltInOrKeyword(identMatch[1]) && !PYTHON_COMMON_METHODS.has(identMatch[1])) {
+            const beforeMatch = stripped.slice(0, fstrMatch.index);
+            const lineNum = beforeMatch.split('\n').length;
+            identifiers.push({ name: identMatch[1], line: lineNum, column: 0 });
+          }
+        }
+      }
+    }
+
     const lines = stripped.split('\n');
 
     lines.forEach((line, lineIndex) => {
