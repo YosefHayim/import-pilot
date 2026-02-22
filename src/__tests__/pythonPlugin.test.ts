@@ -690,14 +690,14 @@ from os import path`;
     it('should detect identifier inside f-string expression', () => {
       const content = `name = get_name()\nprint(f"Hello {name}")`;
       const ids = plugin.findUsedIdentifiers(content, 'test.py');
-      const names = ids.map(i => i.name);
+      const names = ids.map((i) => i.name);
       expect(names).toContain('name');
     });
 
     it('should extract root identifier from dotted f-string expression', () => {
       const content = `print(f"{obj.method()}")`;
       const ids = plugin.findUsedIdentifiers(content, 'test.py');
-      const names = ids.map(i => i.name);
+      const names = ids.map((i) => i.name);
       expect(names).toContain('obj');
       expect(names).not.toContain('method');
     });
@@ -705,7 +705,7 @@ from os import path`;
     it('should not extract identifiers from plain strings (non f-strings)', () => {
       const content = `x = "not f-string {should_not_appear}"`;
       const ids = plugin.findUsedIdentifiers(content, 'test.py');
-      const names = ids.map(i => i.name);
+      const names = ids.map((i) => i.name);
       expect(names).not.toContain('should_not_appear');
     });
 
@@ -713,14 +713,14 @@ from os import path`;
       const content = `print(f"literal only")`;
       const ids = plugin.findUsedIdentifiers(content, 'test.py');
       // Only 'print' might appear from line processing, but no f-string identifiers
-      const names = ids.map(i => i.name);
+      const names = ids.map((i) => i.name);
       expect(names).not.toContain('literal');
     });
 
     it('should handle multiple expressions in one f-string', () => {
       const content = `print(f"{user.name} is {age} years old")`;
       const ids = plugin.findUsedIdentifiers(content, 'test.py');
-      const names = ids.map(i => i.name);
+      const names = ids.map((i) => i.name);
       expect(names).toContain('user');
       expect(names).toContain('age');
     });
