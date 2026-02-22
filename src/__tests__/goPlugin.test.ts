@@ -65,70 +65,120 @@ describe('GoPlugin', () => {
       const imports = plugin.parseImports(content, 'main.go');
       expect(imports).toHaveLength(2);
     });
+
+    describe('FIX #86: Go dot and blank imports', () => {
+      it('should parse dot import in grouped block', () => {
+        const content = `package main\n\nimport (\n\t. "fmt"\n)`;
+        const imports = plugin.parseImports(content, 'main.go');
+        expect(imports).toHaveLength(1);
+        expect(imports[0].source).toBe('fmt');
+        expect(imports[0].imports).toEqual(['.']);
+      });
+
+      it('should parse blank import in grouped block', () => {
+        const content = `package main\n\nimport (\n\t_ "image/png"\n)`;
+        const imports = plugin.parseImports(content, 'main.go');
+        expect(imports).toHaveLength(1);
+        expect(imports[0].source).toBe('image/png');
+        expect(imports[0].imports).toEqual(['_']);
+      });
+
+      it('should parse single-line dot import', () => {
+        const content = `package main\n\nimport . "fmt"`;
+        const imports = plugin.parseImports(content, 'main.go');
+        expect(imports).toHaveLength(1);
+        expect(imports[0].source).toBe('fmt');
+        expect(imports[0].imports).toEqual(['.']);
+      });
+
+      it('should parse single-line blank import', () => {
+        const content = `package main\n\nimport _ "image/png"`;
+        const imports = plugin.parseImports(content, 'main.go');
+        expect(imports).toHaveLength(1);
+        expect(imports[0].source).toBe('image/png');
+        expect(imports[0].imports).toEqual(['_']);
+      });
+
+      it('should still parse regular imports (regression guard)', () => {
+        const content = `package main\n\nimport "fmt"`;
+        const imports = plugin.parseImports(content, 'main.go');
+        expect(imports).toHaveLength(1);
+        expect(imports[0].source).toBe('fmt');
+        expect(imports[0].imports).toEqual(['fmt']);
+      });
+
+      it('should still parse aliased imports (regression guard)', () => {
+        const content = `package main\n\nimport f "fmt"`;
+        const imports = plugin.parseImports(content, 'main.go');
+        expect(imports).toHaveLength(1);
+        expect(imports[0].source).toBe('fmt');
+        expect(imports[0].imports).toEqual(['f']);
+      });
+    });
   });
 
   describe('findUsedIdentifiers', () => {
     it('should detect package-qualified calls with both pkg and symbol', () => {
       const content = `package main\n\nfunc main() {\n\tcustom.DoSomething()\n}`;
       const ids = plugin.findUsedIdentifiers(content, 'main.go');
-      expect(ids.some(id => id.name === 'custom')).toBe(true);
-      expect(ids.some(id => id.name === 'DoSomething')).toBe(true);
+      expect(ids.some((id) => id.name === 'custom')).toBe(true);
+      expect(ids.some((id) => id.name === 'DoSomething')).toBe(true);
     });
 
     it('should detect PascalCase identifiers', () => {
       const content = `package main\n\nfunc main() {\n\tuser := NewUser("test")\n}`;
       const ids = plugin.findUsedIdentifiers(content, 'main.go');
-      expect(ids.some(id => id.name === 'NewUser')).toBe(true);
+      expect(ids.some((id) => id.name === 'NewUser')).toBe(true);
     });
 
     it('should not detect standard library packages', () => {
       const content = `package main\n\nfunc main() {\n\tfmt.Println("hello")\n\tos.Exit(0)\n}`;
       const ids = plugin.findUsedIdentifiers(content, 'main.go');
-      expect(ids.some(id => id.name === 'fmt')).toBe(false);
-      expect(ids.some(id => id.name === 'os')).toBe(false);
+      expect(ids.some((id) => id.name === 'fmt')).toBe(false);
+      expect(ids.some((id) => id.name === 'os')).toBe(false);
     });
 
     it('should not detect Go keywords', () => {
       const content = `package main\n\nfunc main() {\n\tfor i := range items {\n\t\tdefer cleanup()\n\t}\n}`;
       const ids = plugin.findUsedIdentifiers(content, 'main.go');
-      expect(ids.some(id => id.name === 'for')).toBe(false);
-      expect(ids.some(id => id.name === 'range')).toBe(false);
-      expect(ids.some(id => id.name === 'defer')).toBe(false);
+      expect(ids.some((id) => id.name === 'for')).toBe(false);
+      expect(ids.some((id) => id.name === 'range')).toBe(false);
+      expect(ids.some((id) => id.name === 'defer')).toBe(false);
     });
 
     it('should not detect built-in functions', () => {
       const content = `package main\n\nfunc main() {\n\ts := make([]int, 10)\n\tl := len(s)\n\tprintln(l)\n}`;
       const ids = plugin.findUsedIdentifiers(content, 'main.go');
-      expect(ids.some(id => id.name === 'make')).toBe(false);
-      expect(ids.some(id => id.name === 'len')).toBe(false);
-      expect(ids.some(id => id.name === 'println')).toBe(false);
+      expect(ids.some((id) => id.name === 'make')).toBe(false);
+      expect(ids.some((id) => id.name === 'len')).toBe(false);
+      expect(ids.some((id) => id.name === 'println')).toBe(false);
     });
 
     it('should not detect built-in types', () => {
       const content = `package main\n\nvar x int\nvar y string\nvar z error`;
       const ids = plugin.findUsedIdentifiers(content, 'main.go');
-      expect(ids.some(id => id.name === 'int')).toBe(false);
-      expect(ids.some(id => id.name === 'string')).toBe(false);
-      expect(ids.some(id => id.name === 'error')).toBe(false);
+      expect(ids.some((id) => id.name === 'int')).toBe(false);
+      expect(ids.some((id) => id.name === 'string')).toBe(false);
+      expect(ids.some((id) => id.name === 'error')).toBe(false);
     });
 
     it('should skip import lines', () => {
       const content = `package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("hi")\n}`;
       const ids = plugin.findUsedIdentifiers(content, 'main.go');
-      expect(ids.some(id => id.line === 3)).toBe(false);
+      expect(ids.some((id) => id.line === 3)).toBe(false);
     });
 
     it('should skip comment lines', () => {
       const content = `package main\n\n// CustomService does things\nfunc main() {}`;
       const ids = plugin.findUsedIdentifiers(content, 'main.go');
-      expect(ids.some(id => id.name === 'CustomService')).toBe(false);
+      expect(ids.some((id) => id.name === 'CustomService')).toBe(false);
     });
 
     it('should capture symbol from package-qualified call', () => {
       const content = `package main\n\nfunc main() {\n\tresult := obj.Process()\n}`;
       const ids = plugin.findUsedIdentifiers(content, 'main.go');
-      expect(ids.some(id => id.name === 'obj')).toBe(true);
-      expect(ids.some(id => id.name === 'Process')).toBe(true);
+      expect(ids.some((id) => id.name === 'obj')).toBe(true);
+      expect(ids.some((id) => id.name === 'Process')).toBe(true);
     });
   });
 
@@ -136,8 +186,8 @@ describe('GoPlugin', () => {
     it('should detect exported functions', () => {
       const content = `package handlers\n\nfunc HandleRequest(w http.ResponseWriter) {}\n\nfunc ProcessData(data []byte) error { return nil }`;
       const exports = plugin.parseExports(content, '/project/handlers.go');
-      expect(exports.some(e => e.name === 'HandleRequest')).toBe(true);
-      expect(exports.some(e => e.name === 'ProcessData')).toBe(true);
+      expect(exports.some((e) => e.name === 'HandleRequest')).toBe(true);
+      expect(exports.some((e) => e.name === 'ProcessData')).toBe(true);
     });
 
     it('should not detect unexported functions', () => {
@@ -149,8 +199,8 @@ describe('GoPlugin', () => {
     it('should not detect exported methods (methods cannot be imported directly)', () => {
       const content = `package models\n\nfunc (u *User) Validate() error { return nil }\n\nfunc (u *User) String() string { return u.Name }`;
       const exports = plugin.parseExports(content, '/project/models.go');
-      expect(exports.some(e => e.name === 'Validate')).toBe(false);
-      expect(exports.some(e => e.name === 'String')).toBe(false);
+      expect(exports.some((e) => e.name === 'Validate')).toBe(false);
+      expect(exports.some((e) => e.name === 'String')).toBe(false);
     });
 
     it('should not detect unexported methods', () => {
@@ -162,8 +212,8 @@ describe('GoPlugin', () => {
     it('should detect exported types', () => {
       const content = `package models\n\ntype User struct {\n\tName string\n}\n\ntype Handler interface {\n\tServe()\n}`;
       const exports = plugin.parseExports(content, '/project/models.go');
-      expect(exports.some(e => e.name === 'User')).toBe(true);
-      expect(exports.some(e => e.name === 'Handler')).toBe(true);
+      expect(exports.some((e) => e.name === 'User')).toBe(true);
+      expect(exports.some((e) => e.name === 'Handler')).toBe(true);
     });
 
     it('should not detect unexported types', () => {
@@ -175,15 +225,15 @@ describe('GoPlugin', () => {
     it('should detect exported vars', () => {
       const content = `package config\n\nvar DefaultTimeout = 30\nvar MaxRetries = 3`;
       const exports = plugin.parseExports(content, '/project/config.go');
-      expect(exports.some(e => e.name === 'DefaultTimeout')).toBe(true);
-      expect(exports.some(e => e.name === 'MaxRetries')).toBe(true);
+      expect(exports.some((e) => e.name === 'DefaultTimeout')).toBe(true);
+      expect(exports.some((e) => e.name === 'MaxRetries')).toBe(true);
     });
 
     it('should detect exported vars in grouped block', () => {
       const content = `package config\n\nvar (\n\tDefaultConfig = Config{}\n\tMaxConnections = 100\n)`;
       const exports = plugin.parseExports(content, '/project/config.go');
-      expect(exports.some(e => e.name === 'DefaultConfig')).toBe(true);
-      expect(exports.some(e => e.name === 'MaxConnections')).toBe(true);
+      expect(exports.some((e) => e.name === 'DefaultConfig')).toBe(true);
+      expect(exports.some((e) => e.name === 'MaxConnections')).toBe(true);
     });
 
     it('should not detect unexported vars', () => {
@@ -195,14 +245,14 @@ describe('GoPlugin', () => {
     it('should detect exported consts', () => {
       const content = `package config\n\nconst MaxRetries = 3`;
       const exports = plugin.parseExports(content, '/project/config.go');
-      expect(exports.some(e => e.name === 'MaxRetries')).toBe(true);
+      expect(exports.some((e) => e.name === 'MaxRetries')).toBe(true);
     });
 
     it('should detect exported consts in grouped block', () => {
       const content = `package config\n\nconst (\n\tStatusActive = "active"\n\tStatusInactive = "inactive"\n)`;
       const exports = plugin.parseExports(content, '/project/config.go');
-      expect(exports.some(e => e.name === 'StatusActive')).toBe(true);
-      expect(exports.some(e => e.name === 'StatusInactive')).toBe(true);
+      expect(exports.some((e) => e.name === 'StatusActive')).toBe(true);
+      expect(exports.some((e) => e.name === 'StatusInactive')).toBe(true);
     });
 
     it('should not detect unexported consts', () => {
@@ -214,8 +264,8 @@ describe('GoPlugin', () => {
     it('should ignore commented-out exports', () => {
       const content = `package models\n\n// func OldHandler() {}\nfunc NewHandler() {}`;
       const exports = plugin.parseExports(content, '/project/models.go');
-      expect(exports.some(e => e.name === 'OldHandler')).toBe(false);
-      expect(exports.some(e => e.name === 'NewHandler')).toBe(true);
+      expect(exports.some((e) => e.name === 'OldHandler')).toBe(false);
+      expect(exports.some((e) => e.name === 'NewHandler')).toBe(true);
     });
   });
 

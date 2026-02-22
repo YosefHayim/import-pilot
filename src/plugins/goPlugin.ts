@@ -15,7 +15,7 @@ export class GoPlugin implements LanguagePlugin {
     let match;
     while ((match = groupedRegex.exec(stripped)) !== null) {
       const block = match[1];
-      const lineRegex = /(?:(\w+)\s+)?"([^"]+)"/g;
+      const lineRegex = /(?:([.\w_]+)\s+)?"([^"]+)"/g;
       let lineMatch;
       while ((lineMatch = lineRegex.exec(block)) !== null) {
         const alias = lineMatch[1];
@@ -26,7 +26,7 @@ export class GoPlugin implements LanguagePlugin {
     }
 
     // import "pkg" | import alias "pkg"
-    const singleRegex = /^import\s+(?:(\w+)\s+)?"([^"]+)"\s*$/gm;
+    const singleRegex = /^import\s+(?:([.\w_]+)\s+)?"([^"]+)"\s*$/gm;
     while ((match = singleRegex.exec(stripped)) !== null) {
       const alias = match[1];
       const source = match[2];
@@ -45,10 +45,17 @@ export class GoPlugin implements LanguagePlugin {
       const line = lines[lineIndex];
       const trimmed = line.trim();
 
-      if (trimmed === '' || trimmed.startsWith('//') || trimmed.startsWith('/*') ||
-          trimmed.startsWith('*') || trimmed.startsWith('package ') ||
-          trimmed.startsWith('import ') || trimmed === 'import (' ||
-          trimmed === ')' || /^\s*"[^"]*"\s*$/.test(trimmed)) {
+      if (
+        trimmed === '' ||
+        trimmed.startsWith('//') ||
+        trimmed.startsWith('/*') ||
+        trimmed.startsWith('*') ||
+        trimmed.startsWith('package ') ||
+        trimmed.startsWith('import ') ||
+        trimmed === 'import (' ||
+        trimmed === ')' ||
+        /^\s*"[^"]*"\s*$/.test(trimmed)
+      ) {
         continue;
       }
 
@@ -133,8 +140,9 @@ export class GoPlugin implements LanguagePlugin {
   }
 
   isBuiltInOrKeyword(name: string): boolean {
-    return GO_KEYWORDS.has(name) || GO_BUILTIN_FUNCTIONS.has(name) ||
-           GO_BUILTIN_TYPES.has(name) || GO_STD_PACKAGES.has(name);
+    return (
+      GO_KEYWORDS.has(name) || GO_BUILTIN_FUNCTIONS.has(name) || GO_BUILTIN_TYPES.has(name) || GO_STD_PACKAGES.has(name)
+    );
   }
 
   generateImportStatement(_identifier: string, source: string, _isDefault: boolean): string {
@@ -205,9 +213,8 @@ export class GoPlugin implements LanguagePlugin {
     const lines = content.split('\n');
     const insertIndex = this.getImportInsertPosition(content, _filePath);
 
-    const prevLine = insertIndex > 0 ? lines[insertIndex - 1]?.trim() ?? '' : '';
-    const prevIsImportRelated = prevLine === '' ||
-      prevLine.startsWith('import') || prevLine === ')';
+    const prevLine = insertIndex > 0 ? (lines[insertIndex - 1]?.trim() ?? '') : '';
+    const prevIsImportRelated = prevLine === '' || prevLine.startsWith('import') || prevLine === ')';
     const needsBlankLine = insertIndex > 0 && prevLine !== '' && !prevIsImportRelated;
 
     if (needsBlankLine) {
@@ -256,37 +263,127 @@ export class GoPlugin implements LanguagePlugin {
 }
 
 const GO_KEYWORDS = new Set([
-  'break', 'case', 'chan', 'const', 'continue', 'default', 'defer',
-  'else', 'fallthrough', 'for', 'func', 'go', 'goto', 'if',
-  'import', 'interface', 'map', 'package', 'range', 'return',
-  'select', 'struct', 'switch', 'type', 'var',
+  'break',
+  'case',
+  'chan',
+  'const',
+  'continue',
+  'default',
+  'defer',
+  'else',
+  'fallthrough',
+  'for',
+  'func',
+  'go',
+  'goto',
+  'if',
+  'import',
+  'interface',
+  'map',
+  'package',
+  'range',
+  'return',
+  'select',
+  'struct',
+  'switch',
+  'type',
+  'var',
 ]);
 
 const GO_BUILTIN_FUNCTIONS = new Set([
-  'append', 'cap', 'clear', 'close', 'complex', 'copy', 'delete',
-  'imag', 'len', 'make', 'max', 'min', 'new', 'panic', 'print',
-  'println', 'real', 'recover',
+  'append',
+  'cap',
+  'clear',
+  'close',
+  'complex',
+  'copy',
+  'delete',
+  'imag',
+  'len',
+  'make',
+  'max',
+  'min',
+  'new',
+  'panic',
+  'print',
+  'println',
+  'real',
+  'recover',
 ]);
 
 const GO_BUILTIN_TYPES = new Set([
-  'bool', 'byte', 'comparable', 'complex64', 'complex128',
-  'error', 'float32', 'float64',
-  'int', 'int8', 'int16', 'int32', 'int64',
-  'rune', 'string',
-  'uint', 'uint8', 'uint16', 'uint32', 'uint64', 'uintptr',
+  'bool',
+  'byte',
+  'comparable',
+  'complex64',
+  'complex128',
+  'error',
+  'float32',
+  'float64',
+  'int',
+  'int8',
+  'int16',
+  'int32',
+  'int64',
+  'rune',
+  'string',
+  'uint',
+  'uint8',
+  'uint16',
+  'uint32',
+  'uint64',
+  'uintptr',
   'any',
 ]);
 
-const GO_TYPE_KEYWORDS = new Set([
-  'String', 'Error', 'Reader', 'Writer', 'Stringer',
-]);
+const GO_TYPE_KEYWORDS = new Set(['String', 'Error', 'Reader', 'Writer', 'Stringer']);
 
 const GO_STD_PACKAGES = new Set([
-  'fmt', 'os', 'io', 'log', 'net', 'http', 'strings', 'strconv',
-  'errors', 'context', 'sync', 'time', 'math', 'sort', 'bytes',
-  'bufio', 'regexp', 'path', 'filepath', 'encoding', 'json', 'xml',
-  'csv', 'html', 'template', 'reflect', 'runtime', 'testing',
-  'flag', 'crypto', 'hash', 'sql', 'database', 'embed', 'syscall',
-  'unsafe', 'atomic', 'binary', 'unicode', 'utf8', 'utf16',
-  'ioutil', 'exec', 'signal', 'rand', 'big', 'bits',
+  'fmt',
+  'os',
+  'io',
+  'log',
+  'net',
+  'http',
+  'strings',
+  'strconv',
+  'errors',
+  'context',
+  'sync',
+  'time',
+  'math',
+  'sort',
+  'bytes',
+  'bufio',
+  'regexp',
+  'path',
+  'filepath',
+  'encoding',
+  'json',
+  'xml',
+  'csv',
+  'html',
+  'template',
+  'reflect',
+  'runtime',
+  'testing',
+  'flag',
+  'crypto',
+  'hash',
+  'sql',
+  'database',
+  'embed',
+  'syscall',
+  'unsafe',
+  'atomic',
+  'binary',
+  'unicode',
+  'utf8',
+  'utf16',
+  'ioutil',
+  'exec',
+  'signal',
+  'rand',
+  'big',
+  'bits',
 ]);
