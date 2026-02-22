@@ -129,8 +129,18 @@ async function stepConfigAndScan(state: WizardState): Promise<StepResult> {
   });
 
   const configPath = path.join(state.projectRoot, '.import-pilot.json');
-  await fs.writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-  p.log.success('Created ' + chalk.cyan('.import-pilot.json'));
+
+  // FIX #103: Check if config already exists before writing
+  const configExists = await fs
+    .access(configPath)
+    .then(() => true)
+    .catch(() => false);
+  if (configExists) {
+    p.log.warn(chalk.yellow('⚠ Config file .import-pilot.json already exists. Skipping.'));
+  } else {
+    await fs.writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+    p.log.success('Created ' + chalk.cyan('.import-pilot.json'));
+  }
 
   const runScan = await p.confirm({
     message: 'Run an import scan now? (dry-run preview)',
@@ -235,45 +245,47 @@ async function stepHusky(state: WizardState): Promise<StepResult> {
     if (!p.isCancel(installHusky) && installHusky) {
       const spin = p.spinner();
       spin.start('Installing husky...');
-       try {
-         try {
-           execSync('npm install --save-dev husky', {
-             cwd: state.projectRoot,
-             stdio: 'pipe',
-             timeout: 30000,
-             maxBuffer: 10 * 1024 * 1024,
-           });
-         } catch (err) {
-           if ((err as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
+      try {
+        try {
+          execSync('npm install --save-dev husky', {
+            cwd: state.projectRoot,
+            stdio: 'pipe',
+            timeout: 30000,
+            maxBuffer: 10 * 1024 * 1024,
+          });
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
             throw new Error('npm install timed out (30s). Check your network connection.');
-           }
-           throw err;
-         }
-         try {
-           execSync('npx husky init', {
-             cwd: state.projectRoot,
-             stdio: 'pipe',
-             timeout: 30000,
-             maxBuffer: 10 * 1024 * 1024,
-           });
-         } catch (err) {
-           if ((err as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
-             throw new Error('husky init timed out (30s). Check your network connection.');
-           }
-           throw err;
-         }
-         const hookPath = path.join(state.projectRoot, '.husky', 'pre-commit');
-         await fs.writeFile(hookPath, 'npx import-pilot --dry-run\n', 'utf-8');
-         try {
-           await fs.chmod(hookPath, 0o755);
-         } catch {
-           /* noop */
-         }
-         spin.stop('Husky installed with pre-commit hook');
-       } catch (err) {
-         spin.stop('Husky installation failed');
-         p.log.warn(String(err) || 'You can install manually: ' + chalk.cyan('npm install --save-dev husky && npx husky init'));
-       }
+          }
+          throw err;
+        }
+        try {
+          execSync('npx husky init', {
+            cwd: state.projectRoot,
+            stdio: 'pipe',
+            timeout: 30000,
+            maxBuffer: 10 * 1024 * 1024,
+          });
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
+            throw new Error('husky init timed out (30s). Check your network connection.');
+          }
+          throw err;
+        }
+        const hookPath = path.join(state.projectRoot, '.husky', 'pre-commit');
+        await fs.writeFile(hookPath, 'npx import-pilot --dry-run\n', 'utf-8');
+        try {
+          await fs.chmod(hookPath, 0o755);
+        } catch {
+          /* noop */
+        }
+        spin.stop('Husky installed with pre-commit hook');
+      } catch (err) {
+        spin.stop('Husky installation failed');
+        p.log.warn(
+          String(err) || 'You can install manually: ' + chalk.cyan('npm install --save-dev husky && npx husky init'),
+        );
+      }
     }
   }
 }

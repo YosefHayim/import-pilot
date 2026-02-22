@@ -136,4 +136,57 @@ describe('SetupWizard utilities', () => {
       expect(result.hasPreCommit).toBe(false);
     });
   });
+
+  describe('FIX #103: Config overwrite prevention', () => {
+    it('should detect when .import-pilot.json already exists', async () => {
+      const tmpPath = path.resolve('tests/.tmp-test-fix103-exists.json');
+      const configContent = { extensions: ['.ts'], useAliases: true };
+
+      try {
+        // Create a config file first
+        await fs.writeFile(tmpPath, JSON.stringify(configContent));
+
+        // Simulate the check logic from stepConfigAndScan
+        const configExists = await fs
+          .access(tmpPath)
+          .then(() => true)
+          .catch(() => false);
+
+        expect(configExists).toBe(true);
+      } finally {
+        try {
+          await fs.unlink(tmpPath);
+        } catch {
+          /* cleanup */
+        }
+      }
+    });
+
+    it('should detect when .import-pilot.json does not exist', async () => {
+      const tmpPath = path.resolve('tests/.tmp-test-fix103-new.json');
+
+      try {
+        // Ensure file doesn't exist
+        try {
+          await fs.unlink(tmpPath);
+        } catch {
+          /* noop */
+        }
+
+        // Simulate the check logic from stepConfigAndScan
+        const configExists = await fs
+          .access(tmpPath)
+          .then(() => true)
+          .catch(() => false);
+
+        expect(configExists).toBe(false);
+      } finally {
+        try {
+          await fs.unlink(tmpPath);
+        } catch {
+          /* cleanup */
+        }
+      }
+    });
+  });
 });
