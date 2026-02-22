@@ -48,7 +48,7 @@ export class AstParser {
     const imports: ImportStatement[] = [];
 
     // Match: import { x, y } from 'module'
-    const namedImportRegex = /import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
+    const namedImportRegex = /import\s+(?!type\s)\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
     let match;
 
     while ((match = namedImportRegex.exec(content)) !== null) {
@@ -65,7 +65,7 @@ export class AstParser {
     }
 
     // Match: import x from 'module'
-    const defaultImportRegex = /import\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g;
+    const defaultImportRegex = /import\s+(?!type\s)(\w+)\s+from\s+['"]([^'"]+)['"]/g;
     while ((match = defaultImportRegex.exec(content)) !== null) {
       // Skip if this is part of a named import
       if (!content.substring(match.index - 10, match.index).includes('{')) {
@@ -78,7 +78,7 @@ export class AstParser {
     }
 
     // Match: import * as x from 'module'
-    const namespaceImportRegex = /import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g;
+    const namespaceImportRegex = /import\s+(?!type\s)\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g;
     while ((match = namespaceImportRegex.exec(content)) !== null) {
       imports.push({
         source: match[2],

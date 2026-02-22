@@ -116,6 +116,46 @@ export function MyComponent() {
     });
   });
 
+  describe('FIX #74: type-only imports should not be captured', () => {
+    it('should not capture type-only default imports', () => {
+      const result = parser.parse("import type React from 'react';");
+      const defaultImports = result.existingImports.filter((i) => i.isDefault);
+      expect(defaultImports).toHaveLength(0);
+    });
+
+    it('should not capture type-only named imports', () => {
+      const result = parser.parse("import type { FC, ReactNode } from 'react';");
+      const namedImports = result.existingImports.filter((i) => !i.isDefault && !i.isNamespace);
+      expect(namedImports).toHaveLength(0);
+    });
+
+    it('should not capture type-only namespace imports', () => {
+      const result = parser.parse("import type * as NS from 'module';");
+      const nsImports = result.existingImports.filter((i) => i.isNamespace);
+      expect(nsImports).toHaveLength(0);
+    });
+
+    it('should still capture regular default imports (regression guard)', () => {
+      const result = parser.parse("import React from 'react';");
+      expect(result.existingImports).toHaveLength(1);
+      expect(result.existingImports[0].isDefault).toBe(true);
+      expect(result.existingImports[0].imports).toContain('React');
+    });
+
+    it('should still capture regular named imports (regression guard)', () => {
+      const result = parser.parse("import { FC, useState } from 'react';");
+      expect(result.existingImports).toHaveLength(1);
+      expect(result.existingImports[0].imports).toContain('FC');
+      expect(result.existingImports[0].imports).toContain('useState');
+    });
+
+    it('should still capture regular namespace imports (regression guard)', () => {
+      const result = parser.parse("import * as React from 'react';");
+      expect(result.existingImports).toHaveLength(1);
+      expect(result.existingImports[0].isNamespace).toBe(true);
+      expect(result.existingImports[0].imports).toContain('React');
+    });
+  });
   describe('FIX 5b: isKeyword should only suppress Vue compiler macros', () => {
     it('should treat framework symbols as importable (not keywords)', () => {
       const result = parser.parse(`
