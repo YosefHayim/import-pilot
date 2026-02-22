@@ -105,8 +105,48 @@ alias MyApp.NewModule`;
 end`;
       const imports = plugin.parseImports(content, 'test.ex');
       expect(imports).toHaveLength(2);
-      expect(imports.some(i => i.source === 'GenServer')).toBe(true);
-      expect(imports.some(i => i.source === 'MyApp.User')).toBe(true);
+      expect(imports.some((i) => i.source === 'GenServer')).toBe(true);
+      expect(imports.some((i) => i.source === 'MyApp.User')).toBe(true);
+    });
+  });
+
+  describe('FIX #80: Elixir multi-alias syntax', () => {
+    it('should parse alias Foo.{Bar, Baz} into two imports', () => {
+      const content = `alias MyApp.Accounts.{User, Role}`;
+      const imports = plugin.parseImports(content, 'test.ex');
+      expect(imports).toHaveLength(2);
+      expect(imports[0].source).toBe('MyApp.Accounts.User');
+      expect(imports[0].imports).toEqual(['User']);
+      expect(imports[0].isDefault).toBe(true);
+      expect(imports[1].source).toBe('MyApp.Accounts.Role');
+      expect(imports[1].imports).toEqual(['Role']);
+      expect(imports[1].isDefault).toBe(true);
+    });
+
+    it('should parse alias Foo.{Bar} with single item in braces', () => {
+      const content = `alias MyApp.Accounts.{User}`;
+      const imports = plugin.parseImports(content, 'test.ex');
+      expect(imports).toHaveLength(1);
+      expect(imports[0].source).toBe('MyApp.Accounts.User');
+      expect(imports[0].imports).toEqual(['User']);
+      expect(imports[0].isDefault).toBe(true);
+    });
+
+    it('should still parse plain alias (regression guard)', () => {
+      const content = `alias MyApp.Accounts.User`;
+      const imports = plugin.parseImports(content, 'test.ex');
+      expect(imports).toHaveLength(1);
+      expect(imports[0].source).toBe('MyApp.Accounts.User');
+      expect(imports[0].imports).toEqual(['User']);
+    });
+
+    it('should parse multi-alias with three items', () => {
+      const content = `alias Phoenix.{Controller, View, Router}`;
+      const imports = plugin.parseImports(content, 'test.ex');
+      expect(imports).toHaveLength(3);
+      expect(imports[0].source).toBe('Phoenix.Controller');
+      expect(imports[1].source).toBe('Phoenix.View');
+      expect(imports[2].source).toBe('Phoenix.Router');
     });
   });
 
@@ -114,13 +154,13 @@ end`;
     it('should detect PascalCase module references', () => {
       const content = `result = UserService.get_user(id)`;
       const ids = plugin.findUsedIdentifiers(content, 'test.ex');
-      expect(ids.some(id => id.name === 'UserService')).toBe(true);
+      expect(ids.some((id) => id.name === 'UserService')).toBe(true);
     });
 
     it('should detect nested module references as top-level module', () => {
       const content = `data = Accounts.User.changeset(user, attrs)`;
       const ids = plugin.findUsedIdentifiers(content, 'test.ex');
-      expect(ids.some(id => id.name === 'Accounts')).toBe(true);
+      expect(ids.some((id) => id.name === 'Accounts')).toBe(true);
     });
 
     it('should not detect Elixir builtins', () => {
@@ -129,10 +169,10 @@ result = String.trim(value)
 IO.puts("hello")
 Map.get(data, :key)`;
       const ids = plugin.findUsedIdentifiers(content, 'test.ex');
-      expect(ids.some(id => id.name === 'Enum')).toBe(false);
-      expect(ids.some(id => id.name === 'String')).toBe(false);
-      expect(ids.some(id => id.name === 'IO')).toBe(false);
-      expect(ids.some(id => id.name === 'Map')).toBe(false);
+      expect(ids.some((id) => id.name === 'Enum')).toBe(false);
+      expect(ids.some((id) => id.name === 'String')).toBe(false);
+      expect(ids.some((id) => id.name === 'IO')).toBe(false);
+      expect(ids.some((id) => id.name === 'Map')).toBe(false);
     });
 
     it('should not detect Elixir keywords', () => {
@@ -152,22 +192,26 @@ use GenServer
 require Logger
 UserService.call()`;
       const ids = plugin.findUsedIdentifiers(content, 'test.ex');
-      expect(ids.some(id => id.name === 'UserService')).toBe(true);
-      expect(ids.filter(id => id.name === 'MyApp' || id.name === 'Ecto' || id.name === 'GenServer' || id.name === 'Logger')).toHaveLength(0);
+      expect(ids.some((id) => id.name === 'UserService')).toBe(true);
+      expect(
+        ids.filter(
+          (id) => id.name === 'MyApp' || id.name === 'Ecto' || id.name === 'GenServer' || id.name === 'Logger',
+        ),
+      ).toHaveLength(0);
     });
 
     it('should not detect identifiers on comment lines', () => {
       const content = `# UserService is used here
 actual = RealModule.call()`;
       const ids = plugin.findUsedIdentifiers(content, 'test.ex');
-      expect(ids.some(id => id.name === 'UserService')).toBe(false);
-      expect(ids.some(id => id.name === 'RealModule')).toBe(true);
+      expect(ids.some((id) => id.name === 'UserService')).toBe(false);
+      expect(ids.some((id) => id.name === 'RealModule')).toBe(true);
     });
 
     it('should detect function calls that could be imported', () => {
       const content = `result = custom_function(arg1, arg2)`;
       const ids = plugin.findUsedIdentifiers(content, 'test.ex');
-      expect(ids.some(id => id.name === 'custom_function')).toBe(true);
+      expect(ids.some((id) => id.name === 'custom_function')).toBe(true);
     });
 
     it('should not detect Kernel built-in function calls', () => {
@@ -176,10 +220,10 @@ h = hd(list)
 t = tl(list)
 e = elem(tuple, 0)`;
       const ids = plugin.findUsedIdentifiers(content, 'test.ex');
-      expect(ids.some(id => id.name === 'length')).toBe(false);
-      expect(ids.some(id => id.name === 'hd')).toBe(false);
-      expect(ids.some(id => id.name === 'tl')).toBe(false);
-      expect(ids.some(id => id.name === 'elem')).toBe(false);
+      expect(ids.some((id) => id.name === 'length')).toBe(false);
+      expect(ids.some((id) => id.name === 'hd')).toBe(false);
+      expect(ids.some((id) => id.name === 'tl')).toBe(false);
+      expect(ids.some((id) => id.name === 'elem')).toBe(false);
     });
 
     it('should not detect identifiers on defmodule lines', () => {
@@ -187,8 +231,8 @@ e = elem(tuple, 0)`;
   CustomModule.call()
 end`;
       const ids = plugin.findUsedIdentifiers(content, 'test.ex');
-      expect(ids.some(id => id.name === 'MyApp')).toBe(false);
-      expect(ids.some(id => id.name === 'CustomModule')).toBe(true);
+      expect(ids.some((id) => id.name === 'MyApp')).toBe(false);
+      expect(ids.some((id) => id.name === 'CustomModule')).toBe(true);
     });
   });
 
@@ -197,8 +241,8 @@ end`;
       const content = `defmodule MyApp.Accounts.User do
 end`;
       const exports = plugin.parseExports(content, '/project/lib/my_app/accounts/user.ex');
-      expect(exports.some(e => e.name === 'User')).toBe(true);
-      expect(exports.some(e => e.name === 'MyApp.Accounts.User')).toBe(true);
+      expect(exports.some((e) => e.name === 'User')).toBe(true);
+      expect(exports.some((e) => e.name === 'MyApp.Accounts.User')).toBe(true);
     });
 
     it('should detect public function definitions', () => {
@@ -207,11 +251,11 @@ end`;
 end
 
 def format_name(first, last) do
-  "\#{first} \#{last}"
+  "#{first} #{last}"
 end`;
       const exports = plugin.parseExports(content, '/project/lib/helpers.ex');
-      expect(exports.some(e => e.name === 'calculate_total')).toBe(true);
-      expect(exports.some(e => e.name === 'format_name')).toBe(true);
+      expect(exports.some((e) => e.name === 'calculate_total')).toBe(true);
+      expect(exports.some((e) => e.name === 'format_name')).toBe(true);
     });
 
     it('should not detect private function definitions (defp)', () => {
@@ -223,8 +267,8 @@ defp internal_helper(arg) do
   arg
 end`;
       const exports = plugin.parseExports(content, '/project/lib/service.ex');
-      expect(exports.some(e => e.name === 'public_func')).toBe(true);
-      expect(exports.some(e => e.name === 'internal_helper')).toBe(false);
+      expect(exports.some((e) => e.name === 'public_func')).toBe(true);
+      expect(exports.some((e) => e.name === 'internal_helper')).toBe(false);
     });
 
     it('should detect defmacro declarations', () => {
@@ -234,7 +278,7 @@ end`;
   end
 end`;
       const exports = plugin.parseExports(content, '/project/lib/macros.ex');
-      expect(exports.some(e => e.name === 'debug_log')).toBe(true);
+      expect(exports.some((e) => e.name === 'debug_log')).toBe(true);
     });
 
     it('should not detect defmacrop (private macros)', () => {
@@ -246,8 +290,8 @@ defmacrop private_macro(arg) do
   arg
 end`;
       const exports = plugin.parseExports(content, '/project/lib/macros.ex');
-      expect(exports.some(e => e.name === 'public_macro')).toBe(true);
-      expect(exports.some(e => e.name === 'private_macro')).toBe(false);
+      expect(exports.some((e) => e.name === 'public_macro')).toBe(true);
+      expect(exports.some((e) => e.name === 'private_macro')).toBe(false);
     });
 
     it('should detect functions with bang and question mark', () => {
@@ -259,8 +303,8 @@ def valid?(value) do
   is_binary(value)
 end`;
       const exports = plugin.parseExports(content, '/project/lib/utils.ex');
-      expect(exports.some(e => e.name === 'fetch!')).toBe(true);
-      expect(exports.some(e => e.name === 'valid?')).toBe(true);
+      expect(exports.some((e) => e.name === 'fetch!')).toBe(true);
+      expect(exports.some((e) => e.name === 'valid?')).toBe(true);
     });
 
     it('should detect simple module name (no dots)', () => {
@@ -270,15 +314,15 @@ end`;
   end
 end`;
       const exports = plugin.parseExports(content, '/project/lib/router.ex');
-      expect(exports.some(e => e.name === 'Router')).toBe(true);
-      expect(exports.some(e => e.name === 'route')).toBe(true);
+      expect(exports.some((e) => e.name === 'Router')).toBe(true);
+      expect(exports.some((e) => e.name === 'route')).toBe(true);
     });
 
     it('should detect defmodule with one-line do: form (#45)', () => {
       const content = `defmodule MyApp.Config, do: use(Application)`;
       const exports = plugin.parseExports(content, '/project/lib/my_app/config.ex');
-      expect(exports.some(e => e.name === 'Config')).toBe(true);
-      expect(exports.some(e => e.name === 'MyApp.Config')).toBe(true);
+      expect(exports.some((e) => e.name === 'Config')).toBe(true);
+      expect(exports.some((e) => e.name === 'MyApp.Config')).toBe(true);
     });
 
     it('should detect zero-arity public functions (#46)', () => {
@@ -290,8 +334,8 @@ def stop do
   :ok
 end`;
       const exports = plugin.parseExports(content, '/project/lib/server.ex');
-      expect(exports.some(e => e.name === 'start')).toBe(true);
-      expect(exports.some(e => e.name === 'stop')).toBe(true);
+      expect(exports.some((e) => e.name === 'start')).toBe(true);
+      expect(exports.some((e) => e.name === 'stop')).toBe(true);
     });
   });
 
