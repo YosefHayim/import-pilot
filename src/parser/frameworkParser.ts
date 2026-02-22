@@ -65,29 +65,53 @@ export class FrameworkParser {
 
   /**
    * Extract script section from Vue Single File Component
-   * Matches <script>, <script setup>, <script lang="ts">, etc.
+   * Matches ALL <script> tags: <script>, <script setup>, <script lang="ts">, etc.
+   * Concatenates all script contents for analysis.
+   * Insertion target: <script setup> if present, otherwise first <script>.
    */
   private extractVueScript(content: string): {
     scriptContent: string;
     scriptStart: number;
     scriptEnd: number;
   } {
-    // Match <script> tag with optional attributes
-    const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script>/i;
-    const match = content.match(scriptRegex);
+    // Match ALL <script> tags with optional attributes
+    const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script>/gi;
+    const scriptContents: string[] = [];
+    let insertionStart = 0;
+    let insertionEnd = 0;
+    let foundSetup = false;
+    let foundFirst = false;
+    let match: RegExpExecArray | null;
 
-    if (match) {
-      const scriptContent = match[1];
-      const scriptStart = match.index! + match[0].indexOf('>') + 1;
-      const scriptEnd = scriptStart + scriptContent.length;
+    while ((match = scriptRegex.exec(content)) !== null) {
+      const openTag = match[0].substring(0, match[0].indexOf('>'));
+      const scriptBody = match[1];
+      const start = match.index + match[0].indexOf('>') + 1;
+      const end = start + scriptBody.length;
 
-      return {
-        scriptContent: scriptContent.trim(),
-        scriptStart,
-        scriptEnd,
-      };
+      scriptContents.push(scriptBody);
+
+      // Track first <script> as default insertion target
+      if (!foundFirst) {
+        insertionStart = start;
+        insertionEnd = end;
+        foundFirst = true;
+      }
+      // Prefer <script setup> for insertion (Vue 3 convention)
+      if (/\bsetup\b/i.test(openTag) && !foundSetup) {
+        insertionStart = start;
+        insertionEnd = end;
+        foundSetup = true;
+      }
     }
 
+    if (scriptContents.length > 0) {
+      return {
+        scriptContent: scriptContents.join('\n').trim(),
+        scriptStart: insertionStart,
+        scriptEnd: insertionEnd,
+      };
+    }
     // If no script tag found, return empty
     return {
       scriptContent: '',
@@ -98,7 +122,9 @@ export class FrameworkParser {
 
   /**
    * Extract script section from Svelte component
-   * Matches <script>, <script context="module">, <script lang="ts">, etc.
+   * Matches ALL <script> tags: <script>, <script context="module">, <script lang="ts">, etc.
+   * Concatenates all script contents for analysis.
+   * Insertion target: first <script> tag.
    */
   private extractSvelteScript(content: string): {
     scriptContent: string;
@@ -106,19 +132,34 @@ export class FrameworkParser {
     scriptEnd: number;
   } {
     // Svelte can have multiple script tags (module context and instance)
-    // We'll extract the first one (usually the instance script)
-    const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script>/i;
-    const match = content.match(scriptRegex);
+    // Extract ALL script tags and concatenate for analysis
+    const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script>/gi;
+    const scriptContents: string[] = [];
+    let insertionStart = 0;
+    let insertionEnd = 0;
+    let foundFirst = false;
+    let match: RegExpExecArray | null;
 
-    if (match) {
-      const scriptContent = match[1];
-      const scriptStart = match.index! + match[0].indexOf('>') + 1;
-      const scriptEnd = scriptStart + scriptContent.length;
+    while ((match = scriptRegex.exec(content)) !== null) {
+      const scriptBody = match[1];
+      const start = match.index + match[0].indexOf('>') + 1;
+      const end = start + scriptBody.length;
 
+      scriptContents.push(scriptBody);
+
+      // Use first <script> as insertion target
+      if (!foundFirst) {
+        insertionStart = start;
+        insertionEnd = end;
+        foundFirst = true;
+      }
+    }
+
+    if (scriptContents.length > 0) {
       return {
-        scriptContent: scriptContent.trim(),
-        scriptStart,
-        scriptEnd,
+        scriptContent: scriptContents.join('\n').trim(),
+        scriptStart: insertionStart,
+        scriptEnd: insertionEnd,
       };
     }
 
@@ -185,10 +226,14 @@ export class FrameworkParser {
       return originalContent;
     }
 
-    const { scriptStart, scriptEnd, scriptContent } = parseResult;
+    const { scriptStart, scriptEnd } = parseResult;
 
-    // Find where to insert imports within the script section
-    const lines = scriptContent.split('\n');
+    // Use actual content from the insertion target block (scriptStart..scriptEnd),
+    // not the concatenated scriptContent which may span multiple script blocks
+    const targetContent = originalContent.substring(scriptStart, scriptEnd).trim();
+
+    // Find where to insert imports within the target script section
+    const lines = targetContent.split('\n');
     let lastImportLine = -1;
     let firstCodeLine = 0;
 

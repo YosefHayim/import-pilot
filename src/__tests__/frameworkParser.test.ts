@@ -213,4 +213,100 @@ const foo = 'bar';
       expect(result).toBe(content);
     });
   });
+
+  describe('Multi-script extraction (issue #75)', () => {
+    it('should extract both <script setup> and <script> from Vue SFC', () => {
+      const content = `<script setup lang="ts">
+import { ref } from 'vue'
+const count = ref(0)
+</script>
+
+<script lang="ts">
+export default { name: 'MyComponent' }
+</script>
+
+<template>
+  <div>{{ count }}</div>
+</template>`;
+
+      const result = parser.parseFrameworkFile(content, '.vue');
+
+      expect(result.isFrameworkFile).toBe(true);
+      expect(result.framework).toBe('vue');
+      // Both script blocks should be extracted
+      expect(result.scriptContent).toContain('const count = ref(0)');
+      expect(result.scriptContent).toContain("export default { name: 'MyComponent' }");
+    });
+
+    it('should extract both <script context="module"> and <script> from Svelte', () => {
+      const content = `
+<script context="module">
+export const preload = () => {};
+</script>
+
+<script>
+import { onMount } from 'svelte'
+let mounted = false
+</script>
+
+<div>Content</div>
+`;
+
+      const result = parser.parseFrameworkFile(content, '.svelte');
+
+      expect(result.isFrameworkFile).toBe(true);
+      expect(result.framework).toBe('svelte');
+      // Both script blocks should be extracted
+      expect(result.scriptContent).toContain('export const preload');
+      expect(result.scriptContent).toContain('let mounted = false');
+    });
+
+    it('should still work with single <script> tag (regression guard)', () => {
+      const content = `
+<template>
+  <div>Test</div>
+</template>
+
+<script>
+import { ref } from 'vue'
+const msg = ref('hello')
+</script>
+`;
+
+      const result = parser.parseFrameworkFile(content, '.vue');
+
+      expect(result.isFrameworkFile).toBe(true);
+      expect(result.scriptContent).toContain("const msg = ref('hello')");
+      expect(result.scriptStart).toBeGreaterThan(0);
+      expect(result.scriptEnd).toBeGreaterThan(result.scriptStart);
+    });
+
+    it('should insert imports into <script setup> when both script tags present', () => {
+      const content = `<script setup lang="ts">
+import { ref } from 'vue'
+const count = ref(0)
+</script>
+
+<script lang="ts">
+export default { name: 'MyComponent' }
+</script>
+
+<template>
+  <div>{{ count }}</div>
+</template>`;
+
+      const parseResult = parser.parseFrameworkFile(content, '.vue');
+      const imports = ["import { computed } from 'vue'"];
+      const result = parser.insertImportsIntoFramework(content, imports, parseResult);
+
+      // Import should be inserted into the <script setup> block
+      expect(result).toContain("import { computed } from 'vue'");
+      // The <script setup> should still be present
+      expect(result).toMatch(/<script setup/);
+      // The other <script> block should be unmodified
+      expect(result).toContain("export default { name: 'MyComponent' }");
+      // New import should appear near the existing import in setup block
+      expect(result.indexOf('computed')).toBeGreaterThan(result.indexOf('import { ref }'));
+    });
+  });
 });

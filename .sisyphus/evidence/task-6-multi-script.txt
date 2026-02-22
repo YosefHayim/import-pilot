@@ -1,0 +1,20 @@
+Task 6: Fix #75 — Vue/Svelte multi-script extraction
+========================================================
+
+Changes:
+ src/parser/frameworkParser.ts: extractVueScript() now uses global regex loop to capture ALL <script> tags
+ src/parser/frameworkParser.ts: extractSvelteScript() now uses global regex loop to capture ALL <script> tags
+ src/parser/frameworkParser.ts: insertImportsIntoFramework() uses target block content from originalContent.substring(scriptStart, scriptEnd)
+ src/__tests__/frameworkParser.test.ts: Added 4 regression tests for multi-script extraction
+
+Key design decisions:
+ scriptContent = ALL script blocks concatenated (for identifier detection)
+ scriptStart/scriptEnd = insertion target block only
+ Vue: prefers <script setup> for insertion, otherwise first <script>
+ Svelte: uses first <script> for insertion
+ insertImportsIntoFramework: uses originalContent.substring(scriptStart, scriptEnd) instead of concatenated scriptContent
+
+Verification:
+ npx tsc --noEmit = 0 errors
+ npm test -- --testPathPattern='frameworkParser' --verbose = 15 passed
+ npm test = 520 passed (516 base + 4 new), 0 failed
