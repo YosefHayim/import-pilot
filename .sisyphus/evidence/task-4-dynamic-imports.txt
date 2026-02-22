@@ -1,0 +1,21 @@
+Task 4: Fix #76 — Dynamic imports not recognized
+==============================================
+Date: 2026-02-22
+Commit: fix(#76): recognize dynamic import() expressions
+
+CHANGES:
+- src/parser/astParser.ts: Added dynamic import regex to parseImports()
+  Regex: /(?:await\s+)?import\s*\(\s*['"]([^'"]+)['"]\s*\)/g
+  Captures module path from import('./module') and await import('./module')
+  Template literal imports (backticks) don't match — correct behavior
+
+- src/__tests__/astParser.test.ts: Added 4 regression tests
+  1. await import('./module') → recognized as existing import
+  2. import('./utils/helper') without await → recognized
+  3. Template literal dynamic import → NOT recognized (skipped gracefully)
+  4. Static + dynamic imports coexist → regression guard
+
+VERIFICATION:
+- npx tsc --noEmit: 0 errors
+- npm test (astParser): 23/23 passed
+- npm test (full suite): 512/512 passed (4 new tests added)

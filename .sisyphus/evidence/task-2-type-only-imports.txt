@@ -1,0 +1,23 @@
+# Task 2: Fix #74 — Type-only imports excluded from import matching
+## Date: 2026-02-22
+
+## Changes
+- src/parser/astParser.ts: Added `(?!type\s)` negative lookahead to 3 regexes:
+  - namedImportRegex (line 51)
+  - defaultImportRegex (line 68)
+  - namespaceImportRegex (line 81)
+- src/__tests__/astParser.test.ts: Added 6 new tests in 'FIX #74' describe block
+
+## Verification
+- npx tsc --noEmit: 0 errors
+- npm test (targeted): 79/79 passed (astParser + jsTsPlugin)
+- npm test (full): 505/505 passed (was 499, +6 new tests)
+- Commit: d3c9e49 fix(#74): exclude type-only imports from default import matching
+
+## Test Cases Added
+1. should not capture type-only default imports
+2. should not capture type-only named imports
+3. should not capture type-only namespace imports
+4. should still capture regular default imports (regression guard)
+5. should still capture regular named imports (regression guard)
+6. should still capture regular namespace imports (regression guard)

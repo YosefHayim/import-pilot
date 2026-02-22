@@ -1,0 +1,17 @@
+Task 5: Fix #77 — TypeScript decorator identifiers
+========================================================
+
+CHANGE: Added decorator regex /@([A-Z]\w*)/g to astParser.ts findUsedIdentifiers()
+LOCATION: src/parser/astParser.ts line 110
+TESTS: 4 new tests in src/__tests__/jsTsPlugin.test.ts (FIX #77 describe block)
+
+VERIFICATION:
+ npx tsc --noEmit: 0 errors
+ npm test: 516 passed (512 existing + 4 new), 0 failed
+ Commit: fix(#77): detect TypeScript decorator identifiers
+
+TEST RESULTS:
+ @Component({}) → Component detected ✅
+ @Injectable() → Injectable detected ✅
+ @deprecated → NOT captured (lowercase) ✅
+ Decorators + JSX + function calls coexist ✅

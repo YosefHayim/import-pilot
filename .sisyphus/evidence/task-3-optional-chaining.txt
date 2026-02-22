@@ -1,0 +1,70 @@
+TASK 3: Fix GitHub Issue #78 - Optional Chaining False Positives
+================================================================
+
+ISSUE DESCRIPTION:
+Optional chaining (`obj?.method()`) was incorrectly capturing `method` as a standalone used identifier.
+This caused false positives in the import detection system.
+
+FIX APPLIED:
+============
+File: src/parser/astParser.ts (line 100)
+
+BEFORE:
+  const functionCallRegex = /(?<![.\w])([a-z][a-zA-Z0-9]*)\s*\(/g;
+
+AFTER:
+  const functionCallRegex = /(?<![.?\w])([a-z][a-zA-Z0-9]*)\s*\(/g;
+
+CHANGE: Added `?` to the negative lookbehind character class
+- The `?` character in the lookbehind means: "don't match if preceded by `.`, `?`, or a word character"
+- This excludes `obj?.method()` because `method` is preceded by `?`
+- Maintains existing behavior for `obj.method()` (still excluded)
+- Maintains existing behavior for bare `method()` calls (still captured)
+
+TESTS ADDED:
+============
+File: src/__tests__/astParser.test.ts
+
+New test suite: "FIX #78: optional chaining should not capture method as identifier"
+
+1. Test: "should not capture method in optional chaining obj?.method()"
+   - Verifies that `method` is NOT captured when preceded by `?.`
+   - PASS ✓
+
+2. Test: "should still not capture method in dot notation obj.method() (regression guard)"
+   - Verifies that `method` is still NOT captured when preceded by `.`
+   - Ensures the fix doesn't break existing behavior
+   - PASS ✓
+
+3. Test: "should still capture bare function call method() (regression guard)"
+   - Verifies that `method` IS captured when called without a prefix
+   - Ensures the fix doesn't break bare function call detection
+   - PASS ✓
+
+VERIFICATION RESULTS:
+====================
+✓ TypeScript type check: npx tsc --noEmit → 0 errors
+✓ astParser tests: 19 tests PASS (including 3 new tests)
+✓ Full test suite: 508 tests PASS (up from 505)
+  - Test Suites: 14 passed, 14 total
+  - Tests: 508 passed, 508 total
+  - Time: 17.621 s
+
+GIT COMMIT:
+===========
+Commit: f5c3d6d
+Message: fix(#78): handle optional chaining in identifier detection
+Files changed: 2
+  - src/parser/astParser.ts (1 insertion, 1 deletion)
+  - src/__tests__/astParser.test.ts (35 insertions)
+
+SUMMARY:
+========
+✓ Minimal targeted fix (1 character change to regex)
+✓ No breaking changes to existing functionality
+✓ 3 comprehensive regression tests added
+✓ All 508 tests passing
+✓ TypeScript strict mode clean
+✓ Commit created successfully
+
+STATUS: COMPLETE ✓
