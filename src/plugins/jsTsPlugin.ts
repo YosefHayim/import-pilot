@@ -93,6 +93,34 @@ export class JsTsPlugin implements LanguagePlugin {
         exports.push({ name: exportedName, source: filePath, isDefault: false, isType: true });
       });
     }
+
+    // CommonJS exports (only for .js and .cjs files)
+    const ext = path.extname(filePath);
+    if (ext === '.js' || ext === '.cjs') {
+      // module.exports = { foo, bar }
+      const moduleExportsObjRegex = /module\.exports\s*=\s*\{([^}]+)\}/g;
+      while ((match = moduleExportsObjRegex.exec(scriptContent)) !== null) {
+        const names = match[1]
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        names.forEach((name) => {
+          exports.push({ name, source: filePath, isDefault: false });
+        });
+      }
+
+      // module.exports = ClassName
+      const moduleExportsDefaultRegex = /module\.exports\s*=\s*(\w+)\s*(?:;|$)/gm;
+      while ((match = moduleExportsDefaultRegex.exec(scriptContent)) !== null) {
+        exports.push({ name: match[1], source: filePath, isDefault: true });
+      }
+
+      // exports.name = value
+      const exportsNamedRegex = /exports\.(\w+)\s*=/g;
+      while ((match = exportsNamedRegex.exec(scriptContent)) !== null) {
+        exports.push({ name: match[1], source: filePath, isDefault: false });
+      }
+    }
     return exports;
   }
 

@@ -644,4 +644,39 @@ export * from './helpers';`;
       expect(starExports.some((e) => e.reExportSource === './helpers')).toBe(true);
     });
   });
+
+  describe('FIX #87: CommonJS exports', () => {
+    it('should detect module.exports = { foo, bar } in .js file', () => {
+      const content = `module.exports = { foo, bar };`;
+      const exports = plugin.parseExports(content, 'utils.js');
+      expect(exports.some((e) => e.name === 'foo' && !e.isDefault)).toBe(true);
+      expect(exports.some((e) => e.name === 'bar' && !e.isDefault)).toBe(true);
+    });
+
+    it('should detect module.exports = MyClass as default in .js file', () => {
+      const content = `module.exports = MyClass;`;
+      const exports = plugin.parseExports(content, 'myClass.js');
+      const match = exports.find((e) => e.name === 'MyClass');
+      expect(match).toBeDefined();
+      expect(match!.isDefault).toBe(true);
+    });
+
+    it('should detect exports.helper as named export in .js file', () => {
+      const content = `exports.helper = function() {};`;
+      const exports = plugin.parseExports(content, 'helpers.js');
+      expect(exports.some((e) => e.name === 'helper' && !e.isDefault)).toBe(true);
+    });
+
+    it('should NOT detect CJS exports in .ts files', () => {
+      const content = `module.exports = { foo };`;
+      const exports = plugin.parseExports(content, 'utils.ts');
+      expect(exports.length).toBe(0);
+    });
+
+    it('should still detect ESM exports in .ts files (regression guard)', () => {
+      const content = `export const x = 1;`;
+      const exports = plugin.parseExports(content, 'utils.ts');
+      expect(exports.some((e) => e.name === 'x')).toBe(true);
+    });
+  });
 });
