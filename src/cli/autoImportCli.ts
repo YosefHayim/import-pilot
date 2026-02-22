@@ -74,6 +74,7 @@ export class AutoImportCli {
       extensions,
       useAliases: options.alias !== false,
       plugins: this.plugins,
+      verbose: options.verbose,
     });
     await this.resolver.buildExportCache();
     console.log(chalk.green('✓ Export cache built\n'));
@@ -238,26 +239,29 @@ export class AutoImportCli {
     }
 
     for (const [filePath, imports] of fileMap.entries()) {
-      const content = await fs.readFile(filePath, 'utf-8');
-      const ext = path.extname(filePath);
-      const plugin = getPluginForExtension(ext, this.plugins);
-      if (!plugin) continue;
-
-      const newImports: string[] = [];
-      for (const item of imports) {
-        if (item.suggestion) {
-          newImports.push(
-            plugin.generateImportStatement(item.identifier, item.suggestion.source, item.suggestion.isDefault),
-          );
+      try {
+        const content = await fs.readFile(filePath, 'utf-8');
+        const ext = path.extname(filePath);
+        const plugin = getPluginForExtension(ext, this.plugins);
+        if (!plugin) continue;
+        const newImports: string[] = [];
+        for (const item of imports) {
+          if (item.suggestion) {
+            newImports.push(
+              plugin.generateImportStatement(item.identifier, item.suggestion.source, item.suggestion.isDefault),
+            );
+          }
         }
+
+        if (newImports.length === 0) continue;
+        const lang = this.getLanguageForExt(ext);
+        const sortedImports = enableSort ? sortImports(newImports, lang, sortOrder) : newImports;
+        const newContent = plugin.insertImports(content, sortedImports, filePath);
+        await fs.writeFile(filePath, newContent, 'utf-8');
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error(chalk.red(`Error writing file ${filePath}: ${msg}`));
       }
-
-      if (newImports.length === 0) continue;
-
-      const lang = this.getLanguageForExt(ext);
-      const sortedImports = enableSort ? sortImports(newImports, lang, sortOrder) : newImports;
-      const newContent = plugin.insertImports(content, sortedImports, filePath);
-      await fs.writeFile(filePath, newContent, 'utf-8');
     }
   }
 }

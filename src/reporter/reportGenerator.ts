@@ -147,6 +147,17 @@ export async function writeReport(projectRoot: string, format: ReportFormat, dat
   }
 
   const filePath = path.join(projectRoot, `${REPORT_BASENAME}${ext}`);
-  await fs.writeFile(filePath, content, 'utf-8');
+  try {
+    await fs.writeFile(filePath, content, 'utf-8');
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    try {
+      const { default: chalk } = await import('chalk');
+      console.error(chalk.red(`Error writing report file ${filePath}: ${msg}`));
+    } catch {
+      console.error(`Error writing report file ${filePath}: ${msg}`);
+    }
+    return null;
+  }
   return filePath;
 }

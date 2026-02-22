@@ -459,4 +459,45 @@ export { foo, baz };
       }
     });
   });
+
+  describe('buildExportCache error handling', () => {
+    it('should skip unreadable files without crashing', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_unreadable_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+      // Create a valid file
+      await fs.writeFile(path.join(tmpDir, 'good.ts'), 'export function hello() {}');
+      // Create a broken symlink — glob sees it as a file, but fs.readFile will fail
+      await fs.symlink(path.join(tmpDir, 'nonexistent_target.ts'), path.join(tmpDir, 'bad.ts'));
+
+      try {
+        const resolver = new ImportResolver({ projectRoot: tmpDir, verbose: false });
+        await resolver.buildExportCache();
+        const cache = resolver.getExportCache();
+        // Should have cached the good file's exports
+        const allExports = Array.from(cache.values()).flat();
+        expect(allExports.some((e) => e.name === 'hello')).toBe(true);
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+    it('should log warning for unreadable file when verbose=true', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_verbose_warn_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+      // Create a valid file
+      await fs.writeFile(path.join(tmpDir, 'good.ts'), 'export function hello() {}');
+      // Create a broken symlink — glob sees it as a file, but fs.readFile will fail
+      await fs.symlink(path.join(tmpDir, 'nonexistent_target.ts'), path.join(tmpDir, 'bad.ts'));
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const resolver = new ImportResolver({ projectRoot: tmpDir, verbose: true });
+        await resolver.buildExportCache();
+        expect(warnSpy).toHaveBeenCalled();
+        const warningCall = warnSpy.mock.calls.find((call) => String(call[0]).includes('Warning: Could not read file'));
+        expect(warningCall).toBeDefined();
+      } finally {
+        warnSpy.mockRestore();
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+  });
 });

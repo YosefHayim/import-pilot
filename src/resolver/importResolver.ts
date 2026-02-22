@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+
 import { glob } from 'glob';
 import type { LanguagePlugin } from '@/plugins/languagePlugin.js';
 import { getPluginForExtension } from '@/plugins/index.js';
@@ -16,6 +17,7 @@ export interface ResolverOptions {
   extensions?: string[];
   useAliases?: boolean;
   plugins?: LanguagePlugin[];
+  verbose?: boolean;
 }
 
 export interface PathAlias {
@@ -68,8 +70,16 @@ export class ImportResolver {
         if (exports.length > 0) {
           this.exportCache.set(filePath, exports);
         }
-      } catch {
-        // Skip files that can't be read
+      } catch (error: unknown) {
+        if (this.options.verbose) {
+          const msg = error instanceof Error ? error.message : String(error);
+          try {
+            const { default: chalk } = await import('chalk');
+            console.warn(chalk.yellow(`Warning: Could not read file ${filePath}: ${msg}`));
+          } catch {
+            console.warn(`Warning: Could not read file ${filePath}: ${msg}`);
+          }
+        }
       }
     }
   }
@@ -225,10 +235,7 @@ export class ImportResolver {
 function stripJsonComments(text: string): string {
   // Single-pass regex: match strings first (priority), then comments
   // Strings take precedence — their content is preserved
-  let result = text.replace(
-    /("(?:[^"\\]|\\.)*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
-    (_match, str) => str || ''
-  );
+  let result = text.replace(/("(?:[^"\\]|\\.)*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (_match, str) => str || '');
   // Remove trailing commas
   result = result.replace(/,\s*([}\]])/g, '$1');
   return result;
