@@ -651,4 +651,38 @@ from os import path`;
       expect(imports.some((i) => i.source === 'sys')).toBe(true);
     });
   });
+
+  describe('FIX #82: Python relative imports', () => {
+    it('should parse from .module import X', () => {
+      const content = `from .module import MyClass`;
+      const imports = plugin.parseImports(content, 'test.py');
+      expect(imports).toHaveLength(1);
+      expect(imports[0].source).toBe('.module');
+      expect(imports[0].imports).toEqual(['MyClass']);
+    });
+
+    it('should parse from ..utils import Y', () => {
+      const content = `from ..utils import helper_func`;
+      const imports = plugin.parseImports(content, 'test.py');
+      expect(imports).toHaveLength(1);
+      expect(imports[0].source).toBe('..utils');
+      expect(imports[0].imports).toEqual(['helper_func']);
+    });
+
+    it('should parse from . import X (bare dot)', () => {
+      const content = `from . import config`;
+      const imports = plugin.parseImports(content, 'test.py');
+      expect(imports).toHaveLength(1);
+      expect(imports[0].source).toBe('.');
+      expect(imports[0].imports).toEqual(['config']);
+    });
+
+    it('should still parse from os.path import join (regression guard)', () => {
+      const content = `from os.path import join`;
+      const imports = plugin.parseImports(content, 'test.py');
+      expect(imports).toHaveLength(1);
+      expect(imports[0].source).toBe('os.path');
+      expect(imports[0].imports).toEqual(['join']);
+    });
+  });
 });

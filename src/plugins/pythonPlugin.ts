@@ -10,12 +10,15 @@ export class PythonPlugin implements LanguagePlugin {
     const imports: ImportStatement[] = [];
     let match;
 
-    const normalized = content.replace(/from\s+([\w.]+)\s+import\s*\(([^)]*)\)/gs, (_m, mod: string, names: string) => {
-      const joined = names.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
-      return `from ${mod} import ${joined}`;
-    });
+    const normalized = content.replace(
+      /from\s+(\.\.{0,2}[\w.]*|[\w.]+)\s+import\s*\(([^)]*)\)/gs,
+      (_m, mod: string, names: string) => {
+        const joined = names.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+        return `from ${mod} import ${joined}`;
+      },
+    );
 
-    const fromImportRegex = /^\s*from\s+([\w.]+)\s+import\s+(.+)$/gm;
+    const fromImportRegex = /^\s*from\s+(\.\.{0,2}[\w.]*|[\w.]+)\s+import\s+(.+)$/gm;
     while ((match = fromImportRegex.exec(normalized)) !== null) {
       const names = match[2]
         .split(',')
