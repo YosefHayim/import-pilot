@@ -225,11 +225,11 @@ def another_func():
 MAX_RETRIES = 3`;
       const exports = plugin.parseExports(content, '/project/module.py');
       expect(exports).toHaveLength(2);
-      expect(exports.some(e => e.name === 'PublicClass')).toBe(true);
-      expect(exports.some(e => e.name === 'public_func')).toBe(true);
-      expect(exports.some(e => e.name === 'InternalHelper')).toBe(false);
-      expect(exports.some(e => e.name === 'another_func')).toBe(false);
-      expect(exports.some(e => e.name === 'MAX_RETRIES')).toBe(false);
+      expect(exports.some((e) => e.name === 'PublicClass')).toBe(true);
+      expect(exports.some((e) => e.name === 'public_func')).toBe(true);
+      expect(exports.some((e) => e.name === 'InternalHelper')).toBe(false);
+      expect(exports.some((e) => e.name === 'another_func')).toBe(false);
+      expect(exports.some((e) => e.name === 'MAX_RETRIES')).toBe(false);
     });
 
     it('should filter exports by __all__ with double quotes', () => {
@@ -245,9 +245,9 @@ def secret():
     pass`;
       const exports = plugin.parseExports(content, '/project/module.py');
       expect(exports).toHaveLength(2);
-      expect(exports.some(e => e.name === 'MyClass')).toBe(true);
-      expect(exports.some(e => e.name === 'helper')).toBe(true);
-      expect(exports.some(e => e.name === 'secret')).toBe(false);
+      expect(exports.some((e) => e.name === 'MyClass')).toBe(true);
+      expect(exports.some((e) => e.name === 'helper')).toBe(true);
+      expect(exports.some((e) => e.name === 'secret')).toBe(false);
     });
 
     it('should filter exports by __all__ in tuple form', () => {
@@ -263,9 +263,9 @@ def func_b():
     pass`;
       const exports = plugin.parseExports(content, '/project/module.py');
       expect(exports).toHaveLength(2);
-      expect(exports.some(e => e.name === 'ClassA')).toBe(true);
-      expect(exports.some(e => e.name === 'func_b')).toBe(true);
-      expect(exports.some(e => e.name === 'ClassB')).toBe(false);
+      expect(exports.some((e) => e.name === 'ClassA')).toBe(true);
+      expect(exports.some((e) => e.name === 'func_b')).toBe(true);
+      expect(exports.some((e) => e.name === 'ClassB')).toBe(false);
     });
 
     it('should filter exports by multi-line __all__', () => {
@@ -288,11 +288,11 @@ CONSTANT_X = 42
 CONSTANT_Y = 99`;
       const exports = plugin.parseExports(content, '/project/module.py');
       expect(exports).toHaveLength(3);
-      expect(exports.some(e => e.name === 'ModelA')).toBe(true);
-      expect(exports.some(e => e.name === 'ModelB')).toBe(true);
-      expect(exports.some(e => e.name === 'CONSTANT_X')).toBe(true);
-      expect(exports.some(e => e.name === 'ModelC')).toBe(false);
-      expect(exports.some(e => e.name === 'CONSTANT_Y')).toBe(false);
+      expect(exports.some((e) => e.name === 'ModelA')).toBe(true);
+      expect(exports.some((e) => e.name === 'ModelB')).toBe(true);
+      expect(exports.some((e) => e.name === 'CONSTANT_X')).toBe(true);
+      expect(exports.some((e) => e.name === 'ModelC')).toBe(false);
+      expect(exports.some((e) => e.name === 'CONSTANT_Y')).toBe(false);
     });
 
     it('should include constants in __all__ filtering', () => {
@@ -318,9 +318,9 @@ def my_func():
 MAX_SIZE = 100`;
       const exports = plugin.parseExports(content, '/project/module.py');
       expect(exports).toHaveLength(3);
-      expect(exports.some(e => e.name === 'MyClass')).toBe(true);
-      expect(exports.some(e => e.name === 'my_func')).toBe(true);
-      expect(exports.some(e => e.name === 'MAX_SIZE')).toBe(true);
+      expect(exports.some((e) => e.name === 'MyClass')).toBe(true);
+      expect(exports.some((e) => e.name === 'my_func')).toBe(true);
+      expect(exports.some((e) => e.name === 'MAX_SIZE')).toBe(true);
     });
 
     it('should fall back to all exports when __all__ is empty list', () => {
@@ -333,8 +333,8 @@ def my_func():
     pass`;
       const exports = plugin.parseExports(content, '/project/module.py');
       expect(exports).toHaveLength(2);
-      expect(exports.some(e => e.name === 'MyClass')).toBe(true);
-      expect(exports.some(e => e.name === 'my_func')).toBe(true);
+      expect(exports.some((e) => e.name === 'MyClass')).toBe(true);
+      expect(exports.some((e) => e.name === 'my_func')).toBe(true);
     });
   });
 
@@ -622,6 +622,33 @@ from os import path`;
       const imports = plugin.parseImports(content, 'test.py');
       expect(imports).toHaveLength(1);
       expect(imports[0].imports).toEqual(['L', 'D', 'Optional']);
+    });
+  });
+
+  describe('FIX #81: Python conditional imports', () => {
+    it('should detect indented import inside try block', () => {
+      const content = `try:\n    import ujson\nexcept ImportError:\n    import json`;
+      const imports = plugin.parseImports(content, 'test.py');
+      expect(imports).toHaveLength(2);
+      expect(imports[0].source).toBe('ujson');
+      expect(imports[1].source).toBe('json');
+    });
+
+    it('should detect indented from...import inside if block', () => {
+      const content = `if sys.version_info >= (3, 11):\n    from tomllib import loads\nelse:\n    from tomli import loads`;
+      const imports = plugin.parseImports(content, 'test.py');
+      expect(imports).toHaveLength(2);
+      expect(imports[0].source).toBe('tomllib');
+      expect(imports[0].imports).toEqual(['loads']);
+      expect(imports[1].source).toBe('tomli');
+    });
+
+    it('should still detect top-level imports (regression guard)', () => {
+      const content = `import os\nfrom sys import argv`;
+      const imports = plugin.parseImports(content, 'test.py');
+      expect(imports).toHaveLength(2);
+      expect(imports.some((i) => i.source === 'os')).toBe(true);
+      expect(imports.some((i) => i.source === 'sys')).toBe(true);
     });
   });
 });

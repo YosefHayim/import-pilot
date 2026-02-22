@@ -15,7 +15,7 @@ export class PythonPlugin implements LanguagePlugin {
       return `from ${mod} import ${joined}`;
     });
 
-    const fromImportRegex = /^from\s+([\w.]+)\s+import\s+(.+)$/gm;
+    const fromImportRegex = /^\s*from\s+([\w.]+)\s+import\s+(.+)$/gm;
     while ((match = fromImportRegex.exec(normalized)) !== null) {
       const names = match[2]
         .split(',')
@@ -28,7 +28,7 @@ export class PythonPlugin implements LanguagePlugin {
       imports.push({ source: match[1], imports: names, isDefault: false });
     }
 
-    const importRegex = /^import\s+([\w.]+)(?:\s+as\s+(\w+))?$/gm;
+    const importRegex = /^\s*import\s+([\w.]+)(?:\s+as\s+(\w+))?$/gm;
     while ((match = importRegex.exec(normalized)) !== null) {
       const name = match[2] || match[1].split('.').pop()!;
       imports.push({ source: match[1], imports: [name], isDefault: true });
@@ -44,12 +44,7 @@ export class PythonPlugin implements LanguagePlugin {
 
     lines.forEach((line, lineIndex) => {
       const trimmed = line.trim();
-      if (
-        trimmed.startsWith('#') ||
-        trimmed.startsWith('import ') ||
-        trimmed.startsWith('from ') ||
-        trimmed === ''
-      ) {
+      if (trimmed.startsWith('#') || trimmed.startsWith('import ') || trimmed.startsWith('from ') || trimmed === '') {
         return;
       }
 
@@ -141,14 +136,14 @@ export class PythonPlugin implements LanguagePlugin {
     }
 
     if (allNames) {
-      return exports.filter(e => allNames.has(e.name));
+      return exports.filter((e) => allNames.has(e.name));
     }
 
     return exports;
   }
 
   private parseDunderAll(content: string): Set<string> | null {
-    const allRegex = /^__all__(?:\s*:\s*[^=]+)?\s*=\s*[\[(]([\s\S]*?)[\])]/m;
+    const allRegex = /^__all__(?:\s*:\s*[^=]+)?\s*=\s*[[(]([\s\S]*?)[\])]/m;
     const match = allRegex.exec(content);
     if (!match) {
       return null;
