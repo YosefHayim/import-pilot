@@ -87,6 +87,15 @@ export class AstParser {
       });
     }
 
+    // Match: dynamic imports — import('./module') or await import('./module')
+    // Template literal imports like import(`./${name}`) won't match (no quotes) — correct behavior
+    const dynamicImportRegex = /(?:await\s+)?import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+    while ((match = dynamicImportRegex.exec(content)) !== null) {
+      imports.push({
+        source: match[1],
+        imports: [],
+      });
+    }
     return imports;
   }
 

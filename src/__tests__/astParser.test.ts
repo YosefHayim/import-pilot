@@ -220,4 +220,37 @@ export function MyComponent() {
       expect(result.usedIdentifiers.some((id) => id.name === 'method')).toBe(true);
     });
   });
+
+  describe('FIX #76: dynamic import() expressions should be recognized', () => {
+    it('should recognize await import("./module") as an existing import', () => {
+      const content = `const mod = await import('./module');`;
+      const result = parser.parse(content);
+      expect(result.existingImports.some((i) => i.source === './module')).toBe(true);
+    });
+
+    it('should recognize import("./utils/helper") without await', () => {
+      const content = `import('./utils/helper');`;
+      const result = parser.parse(content);
+      expect(result.existingImports.some((i) => i.source === './utils/helper')).toBe(true);
+    });
+
+    it('should NOT recognize template literal dynamic imports (skipped gracefully)', () => {
+      const content = 'const mod = import(`./modules/${name}`);';
+      const result = parser.parse(content);
+      expect(result.existingImports).toHaveLength(0);
+    });
+
+    it('should still recognize regular static imports (regression guard)', () => {
+      const content = `
+import { useState } from 'react';
+import Button from './Button';
+const mod = await import('./dynamic');
+`;
+      const result = parser.parse(content);
+      expect(result.existingImports.some((i) => i.source === 'react')).toBe(true);
+      expect(result.existingImports.some((i) => i.source === './Button')).toBe(true);
+      expect(result.existingImports.some((i) => i.source === './dynamic')).toBe(true);
+      expect(result.existingImports).toHaveLength(3);
+    });
+  });
 });
