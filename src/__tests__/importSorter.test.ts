@@ -1,9 +1,4 @@
-import {
-  sortImports,
-  groupImportStatements,
-  classifyJsTsImport,
-  classifyPythonImport,
-} from '@/sorter/importSorter';
+import { sortImports, groupImportStatements, classifyJsTsImport, classifyPythonImport } from '@/sorter/importSorter';
 
 describe('importSorter', () => {
   describe('classifyJsTsImport', () => {
@@ -49,10 +44,12 @@ describe('importSorter', () => {
       expect(classifyJsTsImport("import { Baz } from '../../Baz'")).toBe('relative');
     });
 
-    it('should classify side-effect imports', () => {
-      expect(classifyJsTsImport("import 'reflect-metadata'")).toBe('external');
-      expect(classifyJsTsImport("import './styles.css'")).toBe('relative');
-      expect(classifyJsTsImport("import 'node:fs'")).toBe('builtin');
+    it('should classify side-effect imports as side-effect', () => {
+      expect(classifyJsTsImport("import 'reflect-metadata'")).toBe('side-effect');
+      expect(classifyJsTsImport("import './styles.css'")).toBe('side-effect');
+      expect(classifyJsTsImport("import 'node:fs'")).toBe('side-effect');
+      expect(classifyJsTsImport("import '@/polyfill'")).toBe('side-effect');
+      expect(classifyJsTsImport("import '../reset.css'")).toBe('side-effect');
     });
   });
 
@@ -82,6 +79,110 @@ describe('importSorter', () => {
     it('should handle comma-separated imports correctly', () => {
       expect(classifyPythonImport('import os, sys')).toBe('stdlib');
       expect(classifyPythonImport('import json, os')).toBe('stdlib');
+    });
+  });
+
+  describe('sortImports - JS/TS side-effect grouping', () => {
+    it('should place side-effect imports at the top before all other groups', () => {
+      const imports = [
+        "import React from 'react';",
+        "import 'reflect-metadata';",
+        "import { join } from 'path';",
+        "import './styles.css';",
+        "import { Button } from './Button';",
+      ];
+
+      const result = sortImports(imports, 'js');
+
+      // Side-effect imports sorted alphabetically: './styles.css' < 'reflect-metadata'
+      expect(result).toEqual([
+        "import './styles.css';",
+        "import 'reflect-metadata';",
+        '',
+        "import { join } from 'path';",
+        '',
+        "import React from 'react';",
+        '',
+        "import { Button } from './Button';",
+      ]);
+    });
+
+    it('should handle CSS side-effect imports', () => {
+      const imports = ["import './global.css';", "import '../reset.css';", "import React from 'react';"];
+
+      const result = sortImports(imports, 'js');
+
+      expect(result).toEqual(["import '../reset.css';", "import './global.css';", '', "import React from 'react';"]);
+    });
+
+    it('should handle polyfill side-effect imports', () => {
+      const imports = [
+        "import React from 'react';",
+        "import 'core-js/stable';",
+        "import 'regenerator-runtime/runtime';",
+      ];
+
+      const result = sortImports(imports, 'js');
+
+      expect(result).toEqual([
+        "import 'core-js/stable';",
+        "import 'regenerator-runtime/runtime';",
+        '',
+        "import React from 'react';",
+      ]);
+    });
+
+    it('should sort side-effect imports alphabetically by source', () => {
+      const imports = ["import './z-styles.css';", "import 'polyfill';", "import './a-styles.css';"];
+
+      const result = sortImports(imports, 'js');
+
+      // '.' < 'p' so relative-path side-effects sort before bare ones
+      expect(result).toEqual(["import './a-styles.css';", "import './z-styles.css';", "import 'polyfill';"]);
+    });
+
+    it('should place side-effect imports first with natural sort order too', () => {
+      const imports = [
+        "import React from 'react';",
+        "import 'reflect-metadata';",
+        "import { Button } from './Button';",
+      ];
+
+      const result = sortImports(imports, 'js', 'natural');
+
+      expect(result).toEqual([
+        "import 'reflect-metadata';",
+        '',
+        "import React from 'react';",
+        '',
+        "import { Button } from './Button';",
+      ]);
+    });
+
+    it('should handle mixed side-effect and regular imports across all groups', () => {
+      const imports = [
+        "import { Comp } from './Comp';",
+        "import './styles.css';",
+        "import { helper } from '@/utils/helper';",
+        "import 'reflect-metadata';",
+        "import express from 'express';",
+        "import * as fs from 'fs';",
+      ];
+
+      const result = sortImports(imports, 'js');
+
+      expect(result).toEqual([
+        "import './styles.css';",
+        "import 'reflect-metadata';",
+        '',
+        "import * as fs from 'fs';",
+        '',
+        "import express from 'express';",
+        '',
+        "import { helper } from '@/utils/helper';",
+        '',
+        "import { Comp } from './Comp';",
+      ]);
     });
   });
 
@@ -159,17 +260,11 @@ describe('importSorter', () => {
     });
 
     it('should not add blank lines when only one group exists', () => {
-      const imports = [
-        "import { Bar } from './Bar';",
-        "import { Foo } from './Foo';",
-      ];
+      const imports = ["import { Bar } from './Bar';", "import { Foo } from './Foo';"];
 
       const result = sortImports(imports, 'js');
 
-      expect(result).toEqual([
-        "import { Bar } from './Bar';",
-        "import { Foo } from './Foo';",
-      ]);
+      expect(result).toEqual(["import { Bar } from './Bar';", "import { Foo } from './Foo';"]);
     });
 
     it('should return empty array for empty input', () => {
@@ -182,19 +277,11 @@ describe('importSorter', () => {
     });
 
     it('should handle mixed alias styles', () => {
-      const imports = [
-        "import { a } from '@/a';",
-        "import { b } from '~/b';",
-        "import { c } from '#c';",
-      ];
+      const imports = ["import { a } from '@/a';", "import { b } from '~/b';", "import { c } from '#c';"];
 
       const result = sortImports(imports, 'ts');
 
-      expect(result).toEqual([
-        "import { a } from '@/a';",
-        "import { c } from '#c';",
-        "import { b } from '~/b';",
-      ]);
+      expect(result).toEqual(["import { a } from '@/a';", "import { c } from '#c';", "import { b } from '~/b';"]);
     });
 
     it('should handle all four groups together', () => {
@@ -229,39 +316,19 @@ describe('importSorter', () => {
 
   describe('sortImports - Python', () => {
     it('should sort Python imports into correct group order: stdlib → thirdparty → local', () => {
-      const imports = [
-        'from .models import User',
-        'import requests',
-        'import os',
-      ];
+      const imports = ['from .models import User', 'import requests', 'import os'];
 
       const result = sortImports(imports, 'python');
 
-      expect(result).toEqual([
-        'import os',
-        '',
-        'import requests',
-        '',
-        'from .models import User',
-      ]);
+      expect(result).toEqual(['import os', '', 'import requests', '', 'from .models import User']);
     });
 
     it('should sort alphabetically within Python groups', () => {
-      const imports = [
-        'import sys',
-        'import os',
-        'import json',
-        'from pathlib import Path',
-      ];
+      const imports = ['import sys', 'import os', 'import json', 'from pathlib import Path'];
 
       const result = sortImports(imports, 'python');
 
-      expect(result).toEqual([
-        'from pathlib import Path',
-        'import json',
-        'import os',
-        'import sys',
-      ]);
+      expect(result).toEqual(['from pathlib import Path', 'import json', 'import os', 'import sys']);
     });
 
     it('should handle all three Python groups', () => {
@@ -298,10 +365,7 @@ describe('importSorter', () => {
         'const App = () => {};',
       ].join('\n');
 
-      const newImports = [
-        "import { join } from 'path';",
-        "import { Button } from './Button';",
-      ];
+      const newImports = ["import { join } from 'path';", "import { Button } from './Button';"];
 
       const result = groupImportStatements(existingContent, newImports, 'js');
 
@@ -325,18 +389,11 @@ describe('importSorter', () => {
     });
 
     it('should handle empty existing content', () => {
-      const newImports = [
-        "import { Foo } from './Foo';",
-        "import React from 'react';",
-      ];
+      const newImports = ["import { Foo } from './Foo';", "import React from 'react';"];
 
       const result = groupImportStatements('', newImports, 'js');
 
-      expect(result).toEqual([
-        "import React from 'react';",
-        '',
-        "import { Foo } from './Foo';",
-      ]);
+      expect(result).toEqual(["import React from 'react';", '', "import { Foo } from './Foo';"]);
     });
 
     it('should handle empty new imports', () => {
@@ -377,11 +434,7 @@ describe('importSorter', () => {
 
       const result = groupImportStatements(existingContent, newImports, 'ts');
 
-      expect(result).toEqual([
-        "import { join } from 'path';",
-        '',
-        "import { useState, useEffect } from 'react';",
-      ]);
+      expect(result).toEqual(["import { join } from 'path';", '', "import { useState, useEffect } from 'react';"]);
     });
   });
 });
