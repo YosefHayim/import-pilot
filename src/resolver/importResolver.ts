@@ -293,6 +293,10 @@ export class ImportResolver {
     return compilerOptions;
   }
 
+  private stripIndexSuffix(importPath: string): string {
+    return importPath.replace(/\/index$/, '');
+  }
+
   private getAliasImportPath(toFile: string): string | null {
     const normalizedToFile = path.resolve(toFile);
 
@@ -302,7 +306,7 @@ export class ImportResolver {
       if (normalizedToFile.startsWith(normalizedTarget)) {
         const remainder = normalizedToFile.slice(normalizedTarget.length);
         const withoutExt = remainder.replace(/\\/g, '/').replace(/\.(ts|tsx|js|jsx|py)$/, '');
-        return alias.prefix + withoutExt;
+        return this.stripIndexSuffix(alias.prefix + withoutExt);
       }
     }
 
@@ -315,7 +319,8 @@ export class ImportResolver {
     const normalizedToFile = path.resolve(toFile);
     if (normalizedToFile.startsWith(resolvedBaseUrl + path.sep)) {
       const remainder = normalizedToFile.slice(resolvedBaseUrl.length + 1);
-      return remainder.replace(/\\/g, '/').replace(/\.(ts|tsx|js|jsx|py)$/, '');
+      const withoutExt = remainder.replace(/\\/g, '/').replace(/\.(ts|tsx|js|jsx|py)$/, '');
+      return this.stripIndexSuffix(withoutExt);
     }
     return null;
   }
@@ -336,7 +341,7 @@ export class ImportResolver {
     if (!relativePath.startsWith('.')) {
       relativePath = './' + relativePath;
     }
-    return relativePath;
+    return this.stripIndexSuffix(relativePath);
   }
 
   private resolveModulePath(fromFile: string, source: string): string | null {
