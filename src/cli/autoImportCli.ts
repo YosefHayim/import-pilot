@@ -10,6 +10,7 @@ import type { ReportFormat, ReportEntry, ReportData } from '@/reporter/reportGen
 import { writeReport } from '@/reporter/reportGenerator.js';
 import { detectProjectLanguages } from '@/detector/languageDetector.js';
 import { sortImports } from '@/sorter/importSorter.js';
+import { UnusedFileAnalyzer } from '@/analyzer/unusedFileAnalyzer.js';
 
 export interface CliOptions {
   dryRun?: boolean;
@@ -21,6 +22,7 @@ export interface CliOptions {
   report?: string;
   sort?: boolean;
   sortOrder?: string;
+  findUnusedFiles?: boolean;
 }
 
 export interface MissingImport {
@@ -88,6 +90,11 @@ export class AutoImportCli {
     });
 
     console.log(chalk.gray(`Found ${files.length} files to analyze\n`));
+
+    if (options.findUnusedFiles) {
+      await this.runUnusedFileDetection(files, projectRoot, options);
+      return;
+    }
 
     const allMissingImports: MissingImport[] = [];
     const reportEntries: ReportEntry[] = [];
@@ -217,6 +224,65 @@ export class AutoImportCli {
     }
   }
 
+  private async runUnusedFileDetection(
+    files: import('@/scanner/fileScanner.js').ScannedFile[],
+    projectRoot: string,
+    _options: CliOptions,
+  ): Promise<void> {
+    console.log(chalk.blue('🔎 Scanning for unused files...\n'));
+
+    const entryPoints = await this.detectEntryPoints(projectRoot);
+    const analyzer = new UnusedFileAnalyzer(projectRoot, { entryPoints });
+    const orphans = analyzer.findUnusedFiles(files, this.plugins);
+
+    if (orphans.length === 0) {
+      console.log(chalk.green('✓ No unused files detected'));
+      return;
+    }
+
+    console.log(chalk.yellow(`Found ${orphans.length} potentially unused file(s):\n`));
+    for (const filePath of orphans) {
+      const relative = path.relative(projectRoot, filePath);
+      console.log(chalk.gray(`  - ${relative}`));
+    }
+
+    console.log(chalk.gray(`\nTotal: ${orphans.length} file(s)`));
+  }
+
+  private async detectEntryPoints(projectRoot: string): Promise<string[]> {
+    const entryPoints: string[] = [];
+    try {
+      const pkgRaw = await fs.readFile(path.join(projectRoot, 'package.json'), 'utf-8');
+      const pkg = JSON.parse(pkgRaw);
+
+      if (typeof pkg.main === 'string') entryPoints.push(pkg.main);
+      if (typeof pkg.module === 'string') entryPoints.push(pkg.module);
+
+      if (pkg.bin) {
+        if (typeof pkg.bin === 'string') {
+          entryPoints.push(pkg.bin);
+        } else if (typeof pkg.bin === 'object') {
+          entryPoints.push(...Object.values(pkg.bin as Record<string, string>));
+        }
+      }
+
+      if (typeof pkg.exports === 'string') {
+        entryPoints.push(pkg.exports);
+      } else if (typeof pkg.exports === 'object') {
+        const extractPaths = (obj: Record<string, unknown>): void => {
+          for (const val of Object.values(obj)) {
+            if (typeof val === 'string') entryPoints.push(val);
+            else if (typeof val === 'object' && val !== null) extractPaths(val as Record<string, unknown>);
+          }
+        };
+        extractPaths(pkg.exports as Record<string, unknown>);
+      }
+    } catch {
+      // No package.json — no entry points to exclude
+    }
+    return entryPoints;
+  }
+
   private getLanguageForExt(ext: string): string {
     const pythonExts = new Set(['.py']);
     const elixirExts = new Set(['.ex', '.exs']);
@@ -287,6 +353,7 @@ export function createCli(): Command {
       'Import sort order: builtin,external,alias,relative',
       'builtin,external,alias,relative',
     )
+    .option('--find-unused-files', 'Detect files with zero incoming imports (orphan files)')
     .action(async (directory: string, options: CliOptions) => {
       try {
         const configPath = path.resolve(directory, options.config || '.import-pilot.json');
@@ -322,6 +389,9 @@ export function createCli(): Command {
           }
           if (!options.sortOrder && fileConfig.sortOrder) {
             options.sortOrder = fileConfig.sortOrder;
+          }
+          if (options.findUnusedFiles === undefined && fileConfig.findUnusedFiles) {
+            options.findUnusedFiles = fileConfig.findUnusedFiles;
           }
         }
 
