@@ -1,4 +1,4 @@
-import type { LanguagePlugin } from './languagePlugin.js';
+import type { LanguagePlugin, ImportStyleOptions } from './languagePlugin.js';
 import type { ImportStatement, UsedIdentifier } from '@/parser/astParser.js';
 import type { ExportInfo } from '@/resolver/importResolver.js';
 
@@ -166,7 +166,12 @@ export class ElixirPlugin implements LanguagePlugin {
     return ELIXIR_BUILTINS.has(name) || ELIXIR_KEYWORDS.has(name);
   }
 
-  generateImportStatement(identifier: string, source: string, _isDefault: boolean): string {
+  generateImportStatement(
+    identifier: string,
+    source: string,
+    _isDefault: boolean,
+    _styleOptions?: ImportStyleOptions,
+  ): string {
     const moduleName = this.filePathToModule(source);
     if (/^[A-Z]/.test(identifier)) {
       if (moduleName.endsWith(`.${identifier}`)) {

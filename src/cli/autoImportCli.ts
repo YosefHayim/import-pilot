@@ -4,7 +4,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { FileScanner } from '@/scanner/fileScanner.js';
 import { ImportResolver } from '@/resolver/importResolver.js';
-import type { LanguagePlugin } from '@/plugins/languagePlugin.js';
+import type { LanguagePlugin, ImportStyleOptions } from '@/plugins/languagePlugin.js';
+import { DEFAULT_STYLE_OPTIONS } from '@/plugins/languagePlugin.js';
 import { getPluginForExtension, getDefaultPlugins, getAllExtensions } from '@/plugins/index.js';
 import type { ReportFormat, ReportEntry, ReportData } from '@/reporter/reportGenerator.js';
 import { writeReport } from '@/reporter/reportGenerator.js';
@@ -21,6 +22,7 @@ export interface CliOptions {
   report?: string;
   sort?: boolean;
   sortOrder?: string;
+  importStyle?: ImportStyleOptions;
 }
 
 export interface MissingImport {
@@ -141,7 +143,8 @@ export class AutoImportCli {
               isDefault: resolution.isDefault,
             };
 
-            const stmt = plugin.generateImportStatement(identifier, resolution.source, resolution.isDefault);
+            const styleOpts = { ...DEFAULT_STYLE_OPTIONS, ...options.importStyle };
+            const stmt = plugin.generateImportStatement(identifier, resolution.source, resolution.isDefault, styleOpts);
 
             if (options.verbose) {
               console.log(chalk.gray(`  - ${identifier}`) + chalk.green(` → ${stmt}`));
@@ -187,7 +190,7 @@ export class AutoImportCli {
       const fixable = allMissingImports.filter((m) => m.suggestion);
       if (fixable.length > 0) {
         console.log(chalk.blue(`\n✨ Applying ${fixable.length} fixes...`));
-        await this.applyFixes(fixable, options.sort !== false, options.sortOrder);
+        await this.applyFixes(fixable, options.sort !== false, options.sortOrder, options.importStyle);
         console.log(chalk.green('✓ Fixes applied successfully'));
       } else {
         console.log(chalk.yellow('\n⚠️  No resolvable imports found'));
@@ -229,7 +232,12 @@ export class AutoImportCli {
     return 'js';
   }
 
-  private async applyFixes(missingImports: MissingImport[], enableSort: boolean, sortOrder?: string): Promise<void> {
+  private async applyFixes(
+    missingImports: MissingImport[],
+    enableSort: boolean,
+    sortOrder?: string,
+    importStyle?: ImportStyleOptions,
+  ): Promise<void> {
     const fileMap = new Map<string, MissingImport[]>();
     for (const item of missingImports) {
       if (!fileMap.has(item.file)) {
@@ -247,8 +255,14 @@ export class AutoImportCli {
         const newImports: string[] = [];
         for (const item of imports) {
           if (item.suggestion) {
+            const styleOpts = { ...DEFAULT_STYLE_OPTIONS, ...importStyle };
             newImports.push(
-              plugin.generateImportStatement(item.identifier, item.suggestion.source, item.suggestion.isDefault),
+              plugin.generateImportStatement(
+                item.identifier,
+                item.suggestion.source,
+                item.suggestion.isDefault,
+                styleOpts,
+              ),
             );
           }
         }
@@ -322,6 +336,20 @@ export function createCli(): Command {
           }
           if (!options.sortOrder && fileConfig.sortOrder) {
             options.sortOrder = fileConfig.sortOrder;
+          }
+
+          // Import style options from config
+          if (fileConfig.quoteStyle || fileConfig.semicolons !== undefined || fileConfig.trailingComma !== undefined) {
+            options.importStyle = options.importStyle || {};
+            if (fileConfig.quoteStyle && !options.importStyle.quoteStyle) {
+              options.importStyle.quoteStyle = fileConfig.quoteStyle;
+            }
+            if (fileConfig.semicolons !== undefined && options.importStyle.semicolons === undefined) {
+              options.importStyle.semicolons = fileConfig.semicolons;
+            }
+            if (fileConfig.trailingComma !== undefined && options.importStyle.trailingComma === undefined) {
+              options.importStyle.trailingComma = fileConfig.trailingComma;
+            }
           }
         }
 

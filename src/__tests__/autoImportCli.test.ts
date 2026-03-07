@@ -292,7 +292,11 @@ describe('AutoImportCli', () => {
       await cli.run('/project', { dryRun: false, extensions: '.ts' });
 
       expect(mockFsReadFile).toHaveBeenCalledWith('/project/src/app.ts', 'utf-8');
-      expect(plugin.generateImportStatement).toHaveBeenCalledWith('Foo', './foo', false);
+      expect(plugin.generateImportStatement).toHaveBeenCalledWith('Foo', './foo', false, {
+        quoteStyle: 'single',
+        semicolons: true,
+        trailingComma: false,
+      });
       expect(plugin.insertImports).toHaveBeenCalled();
       expect(mockFsWriteFile).toHaveBeenCalled();
     });

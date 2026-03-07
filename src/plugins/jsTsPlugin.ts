@@ -1,5 +1,6 @@
 import * as path from 'path';
-import type { LanguagePlugin } from './languagePlugin.js';
+import type { LanguagePlugin, ImportStyleOptions } from './languagePlugin.js';
+import { DEFAULT_STYLE_OPTIONS } from './languagePlugin.js';
 import { AstParser } from '@/parser/astParser.js';
 import { FrameworkParser } from '@/parser/frameworkParser.js';
 import type { ImportStatement, UsedIdentifier } from '@/parser/astParser.js';
@@ -128,8 +129,20 @@ export class JsTsPlugin implements LanguagePlugin {
     return JSTS_BUILTINS.has(name) || JSTS_KEYWORDS.has(name);
   }
 
-  generateImportStatement(identifier: string, source: string, isDefault: boolean): string {
-    return isDefault ? `import ${identifier} from '${source}';` : `import { ${identifier} } from '${source}';`;
+  generateImportStatement(
+    identifier: string,
+    source: string,
+    isDefault: boolean,
+    styleOptions?: ImportStyleOptions,
+  ): string {
+    const opts = { ...DEFAULT_STYLE_OPTIONS, ...styleOptions };
+    const q = opts.quoteStyle === 'double' ? '"' : "'";
+    const semi = opts.semicolons !== false ? ';' : '';
+    if (isDefault) {
+      return `import ${identifier} from ${q}${source}${q}${semi}`;
+    }
+    const comma = opts.trailingComma ? ',' : '';
+    return `import { ${identifier}${comma} } from ${q}${source}${q}${semi}`;
   }
 
   getImportInsertPosition(content: string, filePath: string): number {
