@@ -10,6 +10,7 @@ import type { ReportFormat, ReportEntry, ReportData } from '@/reporter/reportGen
 import { writeReport } from '@/reporter/reportGenerator.js';
 import { detectProjectLanguages } from '@/detector/languageDetector.js';
 import { sortImports } from '@/sorter/importSorter.js';
+import { UnusedExportAnalyzer } from '@/analyzer/unusedExportAnalyzer.js';
 
 export interface CliOptions {
   dryRun?: boolean;
@@ -21,6 +22,7 @@ export interface CliOptions {
   report?: string;
   sort?: boolean;
   sortOrder?: string;
+  findUnusedExports?: boolean;
 }
 
 export interface MissingImport {
@@ -287,6 +289,7 @@ export function createCli(): Command {
       'Import sort order: builtin,external,alias,relative',
       'builtin,external,alias,relative',
     )
+    .option('--find-unused-exports', 'Find exports that are never imported by any other file')
     .action(async (directory: string, options: CliOptions) => {
       try {
         const configPath = path.resolve(directory, options.config || '.import-pilot.json');
@@ -323,6 +326,29 @@ export function createCli(): Command {
           if (!options.sortOrder && fileConfig.sortOrder) {
             options.sortOrder = fileConfig.sortOrder;
           }
+        }
+
+        if (options.findUnusedExports) {
+          const analyzer = new UnusedExportAnalyzer();
+          const unused = await analyzer.analyze(directory, {
+            extensions: options.extensions,
+            ignore: options.ignore,
+            alias: options.alias,
+            verbose: options.verbose,
+          });
+
+          if (unused.length === 0) {
+            console.log(chalk.green('\n✓ No unused exports found'));
+          } else {
+            console.log(chalk.yellow(`\n⚠️  Found ${unused.length} unused export(s):\n`));
+            for (const exp of unused) {
+              const relPath = path.relative(path.resolve(directory), exp.filePath);
+              const defaultLabel = exp.isDefault ? ' (default)' : '';
+              console.log(chalk.gray(`  ${relPath}`) + chalk.red(` → ${exp.name}${defaultLabel}`));
+            }
+            console.log('');
+          }
+          return;
         }
 
         const cli = new AutoImportCli();
