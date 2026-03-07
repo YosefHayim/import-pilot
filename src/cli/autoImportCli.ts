@@ -4,6 +4,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { FileScanner } from '@/scanner/fileScanner.js';
 import { ImportResolver } from '@/resolver/importResolver.js';
+import type { ExportInfo } from '@/resolver/importResolver.js';
 import type { LanguagePlugin } from '@/plugins/languagePlugin.js';
 import { getPluginForExtension, getDefaultPlugins, getAllExtensions } from '@/plugins/index.js';
 import type { ReportFormat, ReportEntry, ReportData } from '@/reporter/reportGenerator.js';
@@ -21,6 +22,7 @@ export interface CliOptions {
   report?: string;
   sort?: boolean;
   sortOrder?: string;
+  interactive?: boolean;
 }
 
 export interface MissingImport {
@@ -42,12 +44,26 @@ export class AutoImportCli {
     this.plugins = plugins ?? getDefaultPlugins();
   }
 
-  async run(directory: string, options: CliOptions = {}): Promise<void> {
+  async run(directory: string, options: CliOptions = {}, configFilePath?: string): Promise<void> {
     const startTime = Date.now();
     console.log(chalk.blue('🔍 Import Pilot'));
     console.log(chalk.gray(`Scanning directory: ${directory}\n`));
 
     const projectRoot = path.resolve(directory);
+
+    const resolvedImportsConfigPath = configFilePath ?? path.resolve(projectRoot, '.import-pilot.json');
+    const resolvedImports: Record<string, string> = {};
+    if (options.interactive) {
+      try {
+        const raw = await fs.readFile(resolvedImportsConfigPath, 'utf-8');
+        const cfg = JSON.parse(raw);
+        if (cfg.resolvedImports && typeof cfg.resolvedImports === 'object') {
+          Object.assign(resolvedImports, cfg.resolvedImports);
+        }
+      } catch {
+        /* no config or invalid */
+      }
+    }
 
     let extensions: string[];
     if (options.extensions) {
@@ -130,7 +146,18 @@ export class AutoImportCli {
         }
 
         for (const identifier of missingIdentifiers) {
-          const resolution = this.resolver!.resolveImport(identifier, file.path);
+          let resolution: ExportInfo | null;
+
+          if (options.interactive) {
+            resolution = await this.resolveInteractively(
+              identifier,
+              file.path,
+              resolvedImports,
+              resolvedImportsConfigPath,
+            );
+          } else {
+            resolution = this.resolver!.resolveImport(identifier, file.path);
+          }
 
           const missingImport: MissingImport = { identifier, file: file.path };
           const relFile = path.relative(projectRoot, file.path);
@@ -229,6 +256,55 @@ export class AutoImportCli {
     return 'js';
   }
 
+  private async resolveInteractively(
+    identifier: string,
+    currentFile: string,
+    resolvedImports: Record<string, string>,
+    configPath: string,
+  ): Promise<ExportInfo | null> {
+    const allMatches = this.resolver!.resolveAllImports(identifier, currentFile);
+    if (allMatches.length === 0) return null;
+    if (allMatches.length === 1) return allMatches[0];
+
+    if (resolvedImports[identifier]) {
+      const saved = resolvedImports[identifier];
+      const match = allMatches.find((m) => m.source === saved);
+      if (match) return match;
+    }
+
+    const { select } = await import('@clack/prompts');
+    const chosen = await select({
+      message: `Multiple sources found for "${identifier}". Choose one:`,
+      options: allMatches.map((m) => ({
+        value: m.source,
+        label: m.source,
+        hint: m.isDefault ? 'default export' : 'named export',
+      })),
+    });
+
+    if (typeof chosen !== 'string') return allMatches[0];
+
+    const selected = allMatches.find((m) => m.source === chosen);
+    if (!selected) return allMatches[0];
+
+    resolvedImports[identifier] = selected.source;
+    await this.saveResolvedImports(configPath, resolvedImports);
+
+    return selected;
+  }
+
+  private async saveResolvedImports(configPath: string, resolvedImports: Record<string, string>): Promise<void> {
+    let config: Record<string, unknown> = {};
+    try {
+      const raw = await fs.readFile(configPath, 'utf-8');
+      config = JSON.parse(raw);
+    } catch {
+      /* no existing config */
+    }
+    config.resolvedImports = resolvedImports;
+    await fs.writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  }
+
   private async applyFixes(missingImports: MissingImport[], enableSort: boolean, sortOrder?: string): Promise<void> {
     const fileMap = new Map<string, MissingImport[]>();
     for (const item of missingImports) {
@@ -282,6 +358,8 @@ export function createCli(): Command {
     .option('--no-alias', 'Disable tsconfig path alias resolution')
     .option('-r, --report <format>', 'Report format: md, json, txt, or none', 'none')
     .option('-s, --no-sort', 'Disable import sorting and grouping')
+    .option('-I, --interactive', 'Prompt to choose when multiple sources export the same identifier')
+    .option('--no-interactive', 'Disable interactive prompts (default; for CI)')
     .option(
       '--sort-order <order>',
       'Import sort order: builtin,external,alias,relative',
@@ -323,10 +401,13 @@ export function createCli(): Command {
           if (!options.sortOrder && fileConfig.sortOrder) {
             options.sortOrder = fileConfig.sortOrder;
           }
+          if (options.interactive === undefined && fileConfig.interactive !== undefined) {
+            options.interactive = fileConfig.interactive;
+          }
         }
 
         const cli = new AutoImportCli();
-        await cli.run(directory, options);
+        await cli.run(directory, options, configPath);
       } catch (error) {
         console.error(chalk.red('\n❌ Error:'), error);
         process.exit(1);
