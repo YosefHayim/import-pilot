@@ -21,6 +21,16 @@ export interface CliOptions {
   report?: string;
   sort?: boolean;
   sortOrder?: string;
+  quiet?: boolean;
+  json?: boolean;
+  globPattern?: string;
+}
+
+export interface JsonOutput {
+  filesScanned: number;
+  filesWithIssues: number;
+  missingImports: { file: string; identifier: string; resolved: boolean; source: string | null }[];
+  unresolved: { file: string; identifier: string }[];
 }
 
 export interface MissingImport {
@@ -44,8 +54,13 @@ export class AutoImportCli {
 
   async run(directory: string, options: CliOptions = {}): Promise<void> {
     const startTime = Date.now();
-    console.log(chalk.blue('🔍 Import Pilot'));
-    console.log(chalk.gray(`Scanning directory: ${directory}\n`));
+    const quiet = !!options.quiet || !!options.json;
+    const log = (...args: unknown[]) => {
+      if (!quiet) console.log(...args);
+    };
+
+    log(chalk.blue('🔍 Import Pilot'));
+    log(chalk.gray(`Scanning directory: ${directory}\n`));
 
     const projectRoot = path.resolve(directory);
 
@@ -60,7 +75,7 @@ export class AutoImportCli {
       const filtered = detected.filter((ext) => supported.has(ext));
       if (filtered.length > 0) {
         extensions = filtered;
-        if (options.verbose) {
+        if (options.verbose && !quiet) {
           console.log(chalk.gray(`Auto-detected extensions: ${filtered.join(', ')}`));
         }
       } else {
@@ -68,26 +83,35 @@ export class AutoImportCli {
       }
     }
 
-    console.log(chalk.yellow('Building export cache...'));
+    log(chalk.yellow('Building export cache...'));
     this.resolver = new ImportResolver({
       projectRoot,
       extensions,
       useAliases: options.alias !== false,
       plugins: this.plugins,
-      verbose: options.verbose,
+      verbose: options.verbose && !quiet,
     });
     await this.resolver.buildExportCache();
-    console.log(chalk.green('✓ Export cache built\n'));
+    log(chalk.green('✓ Export cache built\n'));
 
     const ignore = options.ignore ? options.ignore.split(',').map((pattern) => pattern.trim()) : undefined;
 
-    const files = await this.scanner.scan({
+    let files = await this.scanner.scan({
       cwd: projectRoot,
       extensions,
       ignore,
     });
 
-    console.log(chalk.gray(`Found ${files.length} files to analyze\n`));
+    // Apply glob pattern filter if provided
+    if (options.globPattern) {
+      const { minimatch } = await import('minimatch');
+      files = files.filter((f) => {
+        const rel = path.relative(projectRoot, f.path);
+        return minimatch(rel, options.globPattern!, { matchBase: true });
+      });
+    }
+
+    log(chalk.gray(`Found ${files.length} files to analyze\n`));
 
     const allMissingImports: MissingImport[] = [];
     const reportEntries: ReportEntry[] = [];
@@ -124,7 +148,7 @@ export class AutoImportCli {
       if (missingIdentifiers.length > 0) {
         filesWithIssues++;
 
-        if (options.verbose) {
+        if (options.verbose && !quiet) {
           console.log(chalk.yellow(`\n📄 ${path.relative(projectRoot, file.path)}`));
           console.log(chalk.gray(`   (${plugin.name})`));
         }
@@ -143,7 +167,7 @@ export class AutoImportCli {
 
             const stmt = plugin.generateImportStatement(identifier, resolution.source, resolution.isDefault);
 
-            if (options.verbose) {
+            if (options.verbose && !quiet) {
               console.log(chalk.gray(`  - ${identifier}`) + chalk.green(` → ${stmt}`));
             }
 
@@ -155,7 +179,7 @@ export class AutoImportCli {
               isDefault: resolution.isDefault,
             });
           } else {
-            if (options.verbose) {
+            if (options.verbose && !quiet) {
               console.log(chalk.gray(`  - ${identifier}`) + chalk.red(' → not found in project'));
             }
 
@@ -175,22 +199,46 @@ export class AutoImportCli {
 
     const resolvable = allMissingImports.filter((m) => m.suggestion).length;
 
-    console.log(chalk.blue('\n\n📊 Summary:'));
-    console.log(chalk.gray(`  Total files scanned: ${files.length}`));
-    console.log(chalk.gray(`  Files with missing imports: ${filesWithIssues}`));
-    console.log(chalk.gray(`  Total missing imports: ${allMissingImports.length}`));
-    console.log(chalk.gray(`  Resolvable imports: ${resolvable}`));
+    // JSON output mode — emit structured JSON and return early
+    if (options.json) {
+      const jsonOutput: JsonOutput = {
+        filesScanned: files.length,
+        filesWithIssues,
+        missingImports: allMissingImports
+          .filter((m) => m.suggestion)
+          .map((m) => ({
+            file: path.relative(projectRoot, m.file),
+            identifier: m.identifier,
+            resolved: true,
+            source: m.suggestion!.source,
+          })),
+        unresolved: allMissingImports
+          .filter((m) => !m.suggestion)
+          .map((m) => ({
+            file: path.relative(projectRoot, m.file),
+            identifier: m.identifier,
+          })),
+      };
+      console.log(JSON.stringify(jsonOutput, null, 2));
+      return;
+    }
+
+    log(chalk.blue('\n\n📊 Summary:'));
+    log(chalk.gray(`  Total files scanned: ${files.length}`));
+    log(chalk.gray(`  Files with missing imports: ${filesWithIssues}`));
+    log(chalk.gray(`  Total missing imports: ${allMissingImports.length}`));
+    log(chalk.gray(`  Resolvable imports: ${resolvable}`));
 
     if (options.dryRun) {
-      console.log(chalk.yellow('\n⚠️  Dry run mode - no files were modified'));
+      log(chalk.yellow('\n⚠️  Dry run mode - no files were modified'));
     } else {
       const fixable = allMissingImports.filter((m) => m.suggestion);
       if (fixable.length > 0) {
-        console.log(chalk.blue(`\n✨ Applying ${fixable.length} fixes...`));
+        log(chalk.blue(`\n✨ Applying ${fixable.length} fixes...`));
         await this.applyFixes(fixable, options.sort !== false, options.sortOrder);
-        console.log(chalk.green('✓ Fixes applied successfully'));
+        log(chalk.green('✓ Fixes applied successfully'));
       } else {
-        console.log(chalk.yellow('\n⚠️  No resolvable imports found'));
+        log(chalk.yellow('\n⚠️  No resolvable imports found'));
       }
     }
 
@@ -212,7 +260,7 @@ export class AutoImportCli {
 
       const reportPath = await writeReport(projectRoot, reportFormat, reportData);
       if (reportPath) {
-        console.log(chalk.green(`\n📝 Report written to ${chalk.cyan(path.relative(projectRoot, reportPath))}`));
+        log(chalk.green(`\n📝 Report written to ${chalk.cyan(path.relative(projectRoot, reportPath))}`));
       }
     }
   }
@@ -287,8 +335,16 @@ export function createCli(): Command {
       'Import sort order: builtin,external,alias,relative',
       'builtin,external,alias,relative',
     )
+    .option('-q, --quiet', 'Suppress all stdout output except errors')
+    .option('--json', 'Output scan results as JSON (implies --quiet for non-JSON output)')
     .action(async (directory: string, options: CliOptions) => {
       try {
+        const hasGlobChars = /[*?{}\[\]]/.test(directory);
+        if (hasGlobChars) {
+          options.globPattern = directory;
+          directory = '.';
+        }
+
         const configPath = path.resolve(directory, options.config || '.import-pilot.json');
         let fileConfig: Record<string, any> | null = null;
         try {
