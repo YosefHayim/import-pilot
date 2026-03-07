@@ -314,6 +314,158 @@ describe('importSorter', () => {
     });
   });
 
+  describe('sortImports - JS/TS type-only grouping', () => {
+    it('should group type-only imports after all value imports', () => {
+      const imports = [
+        "import type { User } from './models';",
+        "import React from 'react';",
+        "import { join } from 'path';",
+        "import type { Config } from '@/config';",
+      ];
+
+      const result = sortImports(imports, 'ts');
+
+      expect(result).toEqual([
+        "import { join } from 'path';",
+        '',
+        "import React from 'react';",
+        '',
+        "import type { Config } from '@/config';",
+        '',
+        "import type { User } from './models';",
+      ]);
+    });
+
+    it('should maintain builtin→external→alias→relative ordering within type imports', () => {
+      const imports = [
+        "import type { ReadStream } from 'fs';",
+        "import type { FC } from 'react';",
+        "import type { Button } from '@/components/Button';",
+        "import type { Local } from './local';",
+      ];
+
+      const result = sortImports(imports, 'ts');
+
+      expect(result).toEqual([
+        "import type { ReadStream } from 'fs';",
+        '',
+        "import type { FC } from 'react';",
+        '',
+        "import type { Button } from '@/components/Button';",
+        '',
+        "import type { Local } from './local';",
+      ]);
+    });
+
+    it('should handle mixed value and type imports from same groups', () => {
+      const imports = [
+        "import { useState } from 'react';",
+        "import type { FC } from 'react';",
+        "import { Button } from '@/components/Button';",
+        "import type { ButtonProps } from '@/components/Button';",
+        "import { join } from 'path';",
+      ];
+
+      const result = sortImports(imports, 'ts');
+
+      expect(result).toEqual([
+        "import { join } from 'path';",
+        '',
+        "import { useState } from 'react';",
+        '',
+        "import { Button } from '@/components/Button';",
+        '',
+        "import type { FC } from 'react';",
+        '',
+        "import type { ButtonProps } from '@/components/Button';",
+      ]);
+    });
+
+    it('should handle only type imports (no value imports)', () => {
+      const imports = ["import type { User } from './models';", "import type { Config } from 'config-lib';"];
+
+      const result = sortImports(imports, 'ts');
+
+      expect(result).toEqual([
+        "import type { Config } from 'config-lib';",
+        '',
+        "import type { User } from './models';",
+      ]);
+    });
+
+    it('should handle only value imports unchanged', () => {
+      const imports = ["import React from 'react';", "import { join } from 'path';"];
+
+      const result = sortImports(imports, 'ts');
+
+      expect(result).toEqual(["import { join } from 'path';", '', "import React from 'react';"]);
+    });
+
+    it('should sort type imports alphabetically within sub-groups', () => {
+      const imports = [
+        "import type { Zebra } from 'zoo';",
+        "import type { Apple } from 'apple';",
+        "import { something } from 'something';",
+      ];
+
+      const result = sortImports(imports, 'ts');
+
+      expect(result).toEqual([
+        "import { something } from 'something';",
+        '',
+        "import type { Apple } from 'apple';",
+        "import type { Zebra } from 'zoo';",
+      ]);
+    });
+
+    it('should preserve natural order for type imports when sortOrder is natural', () => {
+      const imports = [
+        "import type { FC } from 'react';",
+        "import { join } from 'path';",
+        "import type { ReadStream } from 'fs';",
+        "import React from 'react';",
+      ];
+
+      const result = sortImports(imports, 'ts', 'natural');
+
+      expect(result).toEqual([
+        "import { join } from 'path';",
+        '',
+        "import React from 'react';",
+        '',
+        "import type { ReadStream } from 'fs';",
+        '',
+        "import type { FC } from 'react';",
+      ]);
+    });
+
+    it('should handle type imports in groupImportStatements', () => {
+      const existingContent = [
+        "import React from 'react';",
+        "import type { FC } from 'react';",
+        '',
+        'const App = () => {};',
+      ].join('\n');
+
+      const newImports = [
+        "import type { ButtonProps } from '@/components/Button';",
+        "import { Button } from '@/components/Button';",
+      ];
+
+      const result = groupImportStatements(existingContent, newImports, 'ts');
+
+      expect(result).toEqual([
+        "import React from 'react';",
+        '',
+        "import { Button } from '@/components/Button';",
+        '',
+        "import type { FC } from 'react';",
+        '',
+        "import type { ButtonProps } from '@/components/Button';",
+      ]);
+    });
+  });
+
   describe('sortImports - Python', () => {
     it('should sort Python imports into correct group order: stdlib → thirdparty → local', () => {
       const imports = ['from .models import User', 'import requests', 'import os'];
