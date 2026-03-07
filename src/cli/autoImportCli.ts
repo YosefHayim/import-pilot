@@ -29,6 +29,7 @@ export interface CliOptions {
   quiet?: boolean;
   json?: boolean;
   globPattern?: string;
+  watch?: boolean;
 }
 
 export interface JsonOutput {
@@ -287,6 +288,148 @@ export class AutoImportCli {
     return 'js';
   }
 
+  async processFile(filePath: string, _projectRoot: string, options: CliOptions = {}): Promise<number> {
+    const absolutePath = path.resolve(filePath);
+    const ext = path.extname(absolutePath);
+    const plugin = getPluginForExtension(ext, this.plugins);
+    if (!plugin || !this.resolver) return 0;
+
+    let content: string;
+    try {
+      content = await fs.readFile(absolutePath, 'utf-8');
+    } catch {
+      return 0;
+    }
+
+    const existingImports = plugin.parseImports(content, absolutePath);
+    const usedIdentifiers = plugin.findUsedIdentifiers(content, absolutePath);
+
+    const importedNames = new Set<string>();
+    existingImports.forEach((imp) => {
+      imp.imports.forEach((name) => importedNames.add(name));
+    });
+
+    const currentFileExports = plugin.parseExports(content, absolutePath);
+    const exportedNames = new Set<string>();
+    currentFileExports.forEach((exp) => exportedNames.add(exp.name));
+
+    const missingIdentifiers = usedIdentifiers
+      .map((id) => id.name)
+      .filter((name, idx, self) => self.indexOf(name) === idx)
+      .filter((name) => !importedNames.has(name))
+      .filter((name) => !exportedNames.has(name))
+      .filter((name) => !plugin.isBuiltInOrKeyword(name));
+
+    const fixable: MissingImport[] = [];
+    for (const identifier of missingIdentifiers) {
+      const resolution = this.resolver.resolveImport(identifier, absolutePath);
+      if (resolution) {
+        fixable.push({
+          identifier,
+          file: absolutePath,
+          suggestion: { source: resolution.source, isDefault: resolution.isDefault },
+        });
+      }
+    }
+
+    if (fixable.length > 0 && !options.dryRun) {
+      await this.applyFixes(fixable, options.sort !== false, options.sortOrder);
+    }
+
+    return fixable.length;
+  }
+
+  async watch(directory: string, options: CliOptions = {}): Promise<() => Promise<void>> {
+    const projectRoot = path.resolve(directory);
+
+    let extensions: string[];
+    if (options.extensions) {
+      extensions = options.extensions
+        .split(',')
+        .map((ext) => (ext.trim().startsWith('.') ? ext.trim() : '.' + ext.trim()));
+    } else {
+      const detected = await detectProjectLanguages(projectRoot);
+      const supported = new Set(getAllExtensions(this.plugins));
+      const filtered = detected.filter((ext) => supported.has(ext));
+      extensions = filtered.length > 0 ? filtered : getAllExtensions(this.plugins);
+    }
+
+    console.log(chalk.blue('🔍 Import Pilot — Watch Mode'));
+    console.log(chalk.yellow('Building export cache...'));
+    this.resolver = new ImportResolver({
+      projectRoot,
+      extensions,
+      useAliases: options.alias !== false,
+      plugins: this.plugins,
+      verbose: options.verbose,
+    });
+    await this.resolver.buildExportCache();
+    console.log(chalk.green('✓ Export cache built\n'));
+
+    const extensionSet = new Set(extensions);
+    const ignore = options.ignore ? options.ignore.split(',').map((p) => p.trim()) : [];
+    const ignoredDirs = ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**', '**/.git/**', ...ignore];
+
+    const { watch: chokidarWatch } = await import('chokidar');
+
+    const globs = extensions.map((ext) => path.join(projectRoot, '**', `*${ext}`));
+
+    const watcher = chokidarWatch(globs, {
+      ignored: ignoredDirs,
+      ignoreInitial: true,
+      awaitWriteFinish: { stabilityThreshold: 100 },
+    });
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const pendingFiles = new Set<string>();
+
+    const processPending = async () => {
+      const files = [...pendingFiles];
+      pendingFiles.clear();
+      for (const filePath of files) {
+        const ext = path.extname(filePath);
+        if (!extensionSet.has(ext)) continue;
+        try {
+          const count = await this.processFile(filePath, projectRoot, options);
+          const now = new Date();
+          const timestamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+          const relPath = path.relative(projectRoot, filePath);
+          if (count > 0) {
+            console.log(chalk.green(`[${timestamp}] ${relPath} changed → ${count} imports added`));
+          } else {
+            console.log(chalk.gray(`[${timestamp}] ${relPath} changed → no missing imports`));
+          }
+        } catch (error: unknown) {
+          const msg = error instanceof Error ? error.message : String(error);
+          console.error(chalk.red(`Error processing ${filePath}: ${msg}`));
+        }
+      }
+    };
+
+    watcher.on('change', (filePath: string) => {
+      pendingFiles.add(filePath);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        void processPending();
+      }, 300);
+    });
+
+    console.log(chalk.blue(`👀 Watching for changes in ${projectRoot}`));
+    console.log(chalk.gray('Press Ctrl+C to stop\n'));
+
+    const cleanup = async () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      await watcher.close();
+      console.log(chalk.yellow('\n👋 Watch mode stopped'));
+    };
+
+    process.on('SIGINT', () => {
+      void cleanup().then(() => process.exit(0));
+    });
+
+    return cleanup;
+  }
+
   private async applyFixes(missingImports: MissingImport[], enableSort: boolean, sortOrder?: string): Promise<void> {
     const fileMap = new Map<string, MissingImport[]>();
     for (const item of missingImports) {
@@ -347,6 +490,7 @@ export function createCli(): Command {
     )
     .option('-q, --quiet', 'Suppress all stdout output except errors')
     .option('--json', 'Output scan results as JSON (implies --quiet for non-JSON output)')
+    .option('-w, --watch', 'Watch for file changes and fix imports automatically')
     .action(async (directory: string, options: CliOptions) => {
       try {
         const hasGlobChars = /[*?{}\[\]]/.test(directory);
@@ -397,8 +541,12 @@ export function createCli(): Command {
         }
 
         const cli = new AutoImportCli();
-        const exitCode = await cli.run(directory, options);
-        process.exitCode = exitCode;
+        if (options.watch) {
+          await cli.watch(directory, options);
+        } else {
+          const exitCode = await cli.run(directory, options);
+          process.exitCode = exitCode;
+        }
       } catch (error) {
         console.error(chalk.red('\n❌ Error:'), error);
         process.exitCode = EXIT_CODE_CONFIG_ERROR;
