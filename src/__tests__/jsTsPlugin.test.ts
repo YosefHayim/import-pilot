@@ -131,6 +131,55 @@ export { foo, bar };`;
       const stmt = plugin.generateImportStatement('React', 'react', true);
       expect(stmt).toBe(`import React from 'react';`);
     });
+
+    it('should use double quotes when quoteStyle is double', () => {
+      const stmt = plugin.generateImportStatement('Card', './Card', false, { quoteStyle: 'double' });
+      expect(stmt).toBe(`import { Card } from "./Card";`);
+    });
+
+    it('should use double quotes for default import', () => {
+      const stmt = plugin.generateImportStatement('React', 'react', true, { quoteStyle: 'double' });
+      expect(stmt).toBe(`import React from "react";`);
+    });
+
+    it('should omit semicolons when semicolons is false', () => {
+      const stmt = plugin.generateImportStatement('Card', './Card', false, { semicolons: false });
+      expect(stmt).toBe(`import { Card } from './Card'`);
+    });
+
+    it('should omit semicolons for default import', () => {
+      const stmt = plugin.generateImportStatement('React', 'react', true, { semicolons: false });
+      expect(stmt).toBe(`import React from 'react'`);
+    });
+
+    it('should add trailing comma when trailingComma is true', () => {
+      const stmt = plugin.generateImportStatement('Card', './Card', false, { trailingComma: true });
+      expect(stmt).toBe(`import { Card, } from './Card';`);
+    });
+
+    it('should not add trailing comma for default imports', () => {
+      const stmt = plugin.generateImportStatement('React', 'react', true, { trailingComma: true });
+      expect(stmt).toBe(`import React from 'react';`);
+    });
+
+    it('should combine all style options', () => {
+      const stmt = plugin.generateImportStatement('Card', './Card', false, {
+        quoteStyle: 'double',
+        semicolons: false,
+        trailingComma: true,
+      });
+      expect(stmt).toBe(`import { Card, } from "./Card"`);
+    });
+
+    it('should use defaults when no style options provided', () => {
+      const stmt = plugin.generateImportStatement('Card', './Card', false);
+      expect(stmt).toBe(`import { Card } from './Card';`);
+    });
+
+    it('should use defaults when empty style options provided', () => {
+      const stmt = plugin.generateImportStatement('Card', './Card', false, {});
+      expect(stmt).toBe(`import { Card } from './Card';`);
+    });
   });
 
   describe('isBuiltInOrKeyword', () => {

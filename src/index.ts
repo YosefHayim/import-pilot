@@ -19,7 +19,8 @@ export type { ImportStatement, UsedIdentifier, ParseResult } from './parser/astP
 export type { FrameworkParseResult } from './parser/frameworkParser.js';
 export type { ExportInfo, ResolverOptions, PathAlias } from './resolver/importResolver.js';
 export type { CliOptions, MissingImport } from './cli/autoImportCli.js';
-export type { LanguagePlugin } from './plugins/languagePlugin.js';
+export type { LanguagePlugin, ImportStyleOptions } from './plugins/languagePlugin.js';
+export { DEFAULT_STYLE_OPTIONS } from './plugins/languagePlugin.js';
 export type { ImportGroup, PythonImportGroup } from './sorter/importSorter.js';
 
 // Reporter

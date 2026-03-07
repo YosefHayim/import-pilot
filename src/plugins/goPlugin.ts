@@ -1,4 +1,4 @@
-import type { LanguagePlugin } from './languagePlugin.js';
+import type { LanguagePlugin, ImportStyleOptions } from './languagePlugin.js';
 import type { ImportStatement, UsedIdentifier } from '@/parser/astParser.js';
 import type { ExportInfo } from '@/resolver/importResolver.js';
 
@@ -145,7 +145,12 @@ export class GoPlugin implements LanguagePlugin {
     );
   }
 
-  generateImportStatement(_identifier: string, source: string, _isDefault: boolean): string {
+  generateImportStatement(
+    _identifier: string,
+    source: string,
+    _isDefault: boolean,
+    _styleOptions?: ImportStyleOptions,
+  ): string {
     const pkgPath = this.filePathToPackage(source);
     return `import "${pkgPath}"`;
   }

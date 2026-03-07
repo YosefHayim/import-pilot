@@ -1,4 +1,4 @@
-import type { LanguagePlugin } from './languagePlugin.js';
+import type { LanguagePlugin, ImportStyleOptions } from './languagePlugin.js';
 import type { ImportStatement, UsedIdentifier } from '@/parser/astParser.js';
 import type { ExportInfo } from '@/resolver/importResolver.js';
 
@@ -233,7 +233,12 @@ export class RustPlugin implements LanguagePlugin {
     return RUST_STD_TYPES.has(name) || RUST_KEYWORDS.has(name) || RUST_PRIMITIVE_TYPES.has(name);
   }
 
-  generateImportStatement(identifier: string, source: string, _isDefault: boolean): string {
+  generateImportStatement(
+    identifier: string,
+    source: string,
+    _isDefault: boolean,
+    _styleOptions?: ImportStyleOptions,
+  ): string {
     const modulePath = this.filePathToModule(source);
     if (!modulePath) {
       return `use crate::${identifier};`;
