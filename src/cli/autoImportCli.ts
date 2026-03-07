@@ -10,6 +10,7 @@ import type { ReportFormat, ReportEntry, ReportData } from '@/reporter/reportGen
 import { writeReport } from '@/reporter/reportGenerator.js';
 import { detectProjectLanguages } from '@/detector/languageDetector.js';
 import { sortImports } from '@/sorter/importSorter.js';
+import { validateAndReportConfig } from '@/cli/configValidator.js';
 
 export interface CliOptions {
   dryRun?: boolean;
@@ -290,38 +291,43 @@ export function createCli(): Command {
     .action(async (directory: string, options: CliOptions) => {
       try {
         const configPath = path.resolve(directory, options.config || '.import-pilot.json');
-        let fileConfig: Record<string, any> | null = null;
+        let fileConfig: Record<string, unknown> | null = null;
         try {
           const raw = await fs.readFile(configPath, 'utf-8');
-          fileConfig = JSON.parse(raw);
+          const parsed = JSON.parse(raw) as Record<string, unknown>;
+          fileConfig = validateAndReportConfig(parsed, configPath);
+          if (!fileConfig) {
+            process.exit(1);
+          }
         } catch {
-          /* no config file */
+          /* no config file or malformed JSON */
         }
 
         if (fileConfig) {
-          if (!options.extensions && fileConfig.extensions) {
-            options.extensions = fileConfig.extensions.join(',');
+          const cfg = fileConfig as Record<string, any>;
+          if (!options.extensions && cfg.extensions) {
+            options.extensions = cfg.extensions.join(',');
           }
-          if (!options.ignore && fileConfig.ignore) {
-            options.ignore = fileConfig.ignore.join(',');
+          if (!options.ignore && cfg.ignore) {
+            options.ignore = cfg.ignore.join(',');
           }
-          if (options.alias === undefined && fileConfig.useAliases !== undefined) {
-            options.alias = fileConfig.useAliases;
+          if (options.alias === undefined && cfg.useAliases !== undefined) {
+            options.alias = cfg.useAliases;
           }
-          if (options.dryRun === undefined && fileConfig.dryRun) {
-            options.dryRun = fileConfig.dryRun;
+          if (options.dryRun === undefined && cfg.dryRun) {
+            options.dryRun = cfg.dryRun;
           }
-          if (options.verbose === undefined && fileConfig.verbose) {
-            options.verbose = fileConfig.verbose;
+          if (options.verbose === undefined && cfg.verbose) {
+            options.verbose = cfg.verbose;
           }
-          if (options.report === 'none' && fileConfig.report && fileConfig.report !== 'none') {
-            options.report = fileConfig.report;
+          if (options.report === 'none' && cfg.report && cfg.report !== 'none') {
+            options.report = cfg.report;
           }
-          if (options.sort === undefined && fileConfig.sort !== undefined) {
-            options.sort = fileConfig.sort;
+          if (options.sort === undefined && cfg.sort !== undefined) {
+            options.sort = cfg.sort;
           }
-          if (!options.sortOrder && fileConfig.sortOrder) {
-            options.sortOrder = fileConfig.sortOrder;
+          if (!options.sortOrder && cfg.sortOrder) {
+            options.sortOrder = cfg.sortOrder;
           }
         }
 
