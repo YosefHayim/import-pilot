@@ -18,6 +18,7 @@ export interface CliOptions {
   extensions?: string;
   ignore?: string;
   alias?: boolean;
+  cache?: boolean;
   report?: string;
   sort?: boolean;
   sortOrder?: string;
@@ -73,6 +74,7 @@ export class AutoImportCli {
       projectRoot,
       extensions,
       useAliases: options.alias !== false,
+      useCache: options.cache !== false,
       plugins: this.plugins,
       verbose: options.verbose,
     });
@@ -280,6 +282,7 @@ export function createCli(): Command {
     .option('-i, --ignore <patterns>', 'Patterns to ignore (comma-separated)')
     .option('-c, --config <path>', 'Path to config file')
     .option('--no-alias', 'Disable tsconfig path alias resolution')
+    .option('--no-cache', 'Disable persistent export cache')
     .option('-r, --report <format>', 'Report format: md, json, txt, or none', 'none')
     .option('-s, --no-sort', 'Disable import sorting and grouping')
     .option(
@@ -307,6 +310,9 @@ export function createCli(): Command {
           }
           if (options.alias === undefined && fileConfig.useAliases !== undefined) {
             options.alias = fileConfig.useAliases;
+          }
+          if (options.cache === undefined && fileConfig.useCache !== undefined) {
+            options.cache = fileConfig.useCache;
           }
           if (options.dryRun === undefined && fileConfig.dryRun) {
             options.dryRun = fileConfig.dryRun;
