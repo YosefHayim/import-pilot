@@ -11,6 +11,7 @@ import { writeReport } from '@/reporter/reportGenerator.js';
 import { detectProjectLanguages } from '@/detector/languageDetector.js';
 import { sortImports } from '@/sorter/importSorter.js';
 import { validateAndReportConfig } from '@/cli/configValidator.js';
+import { createLimiter, getDefaultConcurrency } from '@/concurrency/limiter.js';
 
 export const EXIT_CODE_OK = 0;
 export const EXIT_CODE_ISSUES_FOUND = 1;
@@ -36,6 +37,7 @@ export interface CliOptions {
   addOnly?: boolean;
   removeUnused?: boolean;
   organize?: boolean;
+  concurrency?: number;
 }
 
 export interface JsonOutput {
@@ -112,6 +114,7 @@ export class AutoImportCli {
         useAliases: options.alias !== false,
         plugins: this.plugins,
         verbose: options.verbose && !quiet,
+        concurrency: options.concurrency,
       });
       await this.resolver.buildExportCache();
       log(chalk.green('✓ Export cache built\n'));
@@ -405,82 +408,93 @@ export class AutoImportCli {
     const reportEntries: ReportEntry[] = [];
     let filesWithIssues = 0;
 
-    for (const file of files) {
-      const plugin = getPluginForExtension(file.ext, this.plugins);
-      if (!plugin) continue;
+    const concurrency = options.concurrency ?? getDefaultConcurrency();
+    const limit = createLimiter(concurrency);
+    const fileResults = await Promise.all(
+      files.map((file) =>
+        limit(async () => {
+          const plugin = getPluginForExtension(file.ext, this.plugins);
+          if (!plugin) return null;
 
-      const existingImports = plugin.parseImports(file.content, file.path);
-      const usedIdentifiers = plugin.findUsedIdentifiers(file.content, file.path);
+          const existingImports = plugin.parseImports(file.content, file.path);
+          const usedIdentifiers = plugin.findUsedIdentifiers(file.content, file.path);
 
-      const importedNames = new Set<string>();
-      existingImports.forEach((imp) => {
-        imp.imports.forEach((name) => {
-          importedNames.add(name);
-        });
-      });
+          const importedNames = new Set<string>();
+          existingImports.forEach((imp) => {
+            imp.imports.forEach((name) => {
+              importedNames.add(name);
+            });
+          });
 
-      // Parse exports from current file to avoid flagging locally defined identifiers
-      const currentFileExports = plugin.parseExports(file.content, file.path);
-      const exportedNames = new Set<string>();
-      currentFileExports.forEach((exp) => {
-        exportedNames.add(exp.name);
-      });
+          const currentFileExports = plugin.parseExports(file.content, file.path);
+          const exportedNames = new Set<string>();
+          currentFileExports.forEach((exp) => {
+            exportedNames.add(exp.name);
+          });
 
-      const missingIdentifiers = usedIdentifiers
-        .map((id) => id.name)
-        .filter((name, idx, self) => self.indexOf(name) === idx)
-        .filter((name) => !importedNames.has(name))
-        .filter((name) => !exportedNames.has(name))
-        .filter((name) => !plugin.isBuiltInOrKeyword(name));
+          const missingIdentifiers = usedIdentifiers
+            .map((id) => id.name)
+            .filter((name, idx, self) => self.indexOf(name) === idx)
+            .filter((name) => !importedNames.has(name))
+            .filter((name) => !exportedNames.has(name))
+            .filter((name) => !plugin.isBuiltInOrKeyword(name));
 
-      if (missingIdentifiers.length > 0) {
-        filesWithIssues++;
+          if (missingIdentifiers.length === 0) return null;
 
-        if (options.verbose && !quiet) {
-          console.log(chalk.yellow(`\n📄 ${path.relative(projectRoot, file.path)}`));
-          console.log(chalk.gray(`   (${plugin.name})`));
-        }
+          const fileMissing: MissingImport[] = [];
+          const fileReports: ReportEntry[] = [];
 
-        for (const identifier of missingIdentifiers) {
-          const resolution = this.resolver!.resolveImport(identifier, file.path);
+          for (const identifier of missingIdentifiers) {
+            const resolution = this.resolver!.resolveImport(identifier, file.path);
+            const missingImport: MissingImport = { identifier, file: file.path };
+            const relFile = path.relative(projectRoot, file.path);
 
-          const missingImport: MissingImport = { identifier, file: file.path };
-          const relFile = path.relative(projectRoot, file.path);
-
-          if (resolution) {
-            missingImport.suggestion = {
-              source: resolution.source,
-              isDefault: resolution.isDefault,
-            };
-
-            const stmt = plugin.generateImportStatement(identifier, resolution.source, resolution.isDefault);
-
-            if (options.verbose && !quiet) {
-              console.log(chalk.gray(`  - ${identifier}`) + chalk.green(` → ${stmt}`));
+            if (resolution) {
+              missingImport.suggestion = {
+                source: resolution.source,
+                isDefault: resolution.isDefault,
+              };
+              const stmt = plugin.generateImportStatement(identifier, resolution.source, resolution.isDefault);
+              fileReports.push({
+                file: relFile,
+                identifier,
+                importStatement: stmt,
+                source: resolution.source,
+                isDefault: resolution.isDefault,
+              });
+            } else {
+              fileReports.push({
+                file: relFile,
+                identifier,
+                importStatement: null,
+                source: null,
+                isDefault: false,
+              });
             }
 
-            reportEntries.push({
-              file: relFile,
-              identifier,
-              importStatement: stmt,
-              source: resolution.source,
-              isDefault: resolution.isDefault,
-            });
-          } else {
-            if (options.verbose && !quiet) {
-              console.log(chalk.gray(`  - ${identifier}`) + chalk.red(' → not found in project'));
-            }
-
-            reportEntries.push({
-              file: relFile,
-              identifier,
-              importStatement: null,
-              source: null,
-              isDefault: false,
-            });
+            fileMissing.push(missingImport);
           }
 
-          allMissingImports.push(missingImport);
+          return { filePath: file.path, pluginName: plugin.name, fileMissing, fileReports };
+        }),
+      ),
+    );
+
+    for (const result of fileResults) {
+      if (!result) continue;
+      filesWithIssues++;
+      allMissingImports.push(...result.fileMissing);
+      reportEntries.push(...result.fileReports);
+
+      if (options.verbose && !quiet) {
+        console.log(chalk.yellow(`\n📄 ${path.relative(projectRoot, result.filePath)}`));
+        console.log(chalk.gray(`   (${result.pluginName})`));
+        for (const entry of result.fileReports) {
+          if (entry.importStatement) {
+            console.log(chalk.gray(`  - ${entry.identifier}`) + chalk.green(` → ${entry.importStatement}`));
+          } else {
+            console.log(chalk.gray(`  - ${entry.identifier}`) + chalk.red(' → not found in project'));
+          }
         }
       }
     }
@@ -777,6 +791,7 @@ export function createCli(): Command {
     .option('--add-only', 'Only add missing imports (default behavior)')
     .option('--remove-unused', 'Only remove imports that are not used in the file')
     .option('--organize', 'Full pipeline: sort + remove unused + add missing')
+    .option('--concurrency <number>', 'Max parallel file processing (default: CPU count, max 10)', parseInt)
     .action(async (directory: string, options: CliOptions) => {
       const modeFlags = [options.sortOnly, options.addOnly, options.removeUnused, options.organize].filter(Boolean);
       if (modeFlags.length > 1) {
@@ -831,6 +846,9 @@ export function createCli(): Command {
           }
           if (!options.sortOrder && cfg.sortOrder) {
             options.sortOrder = cfg.sortOrder;
+          }
+          if (options.concurrency === undefined && cfg.concurrency) {
+            options.concurrency = cfg.concurrency as number;
           }
         }
 

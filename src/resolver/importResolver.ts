@@ -4,6 +4,7 @@ import * as path from 'path';
 import { glob } from 'glob';
 import type { LanguagePlugin } from '@/plugins/languagePlugin.js';
 import { getPluginForExtension } from '@/plugins/index.js';
+import { createLimiter, getDefaultConcurrency } from '@/concurrency/limiter.js';
 
 export interface ExportInfo {
   name: string;
@@ -19,6 +20,7 @@ export interface ResolverOptions {
   useAliases?: boolean;
   plugins?: LanguagePlugin[];
   verbose?: boolean;
+  concurrency?: number;
 }
 
 export interface PathAlias {
@@ -73,26 +75,41 @@ export class ImportResolver {
       nodir: true,
     });
 
-    for (const filePath of files) {
-      try {
-        const content = await fs.readFile(filePath, 'utf-8');
-        const ext = path.extname(filePath);
-        const plugin = getPluginForExtension(ext, this.options.plugins);
-        const exports = plugin ? plugin.parseExports(content, filePath) : this.parseExportsLegacy(content, filePath);
-
-        if (exports.length > 0) {
-          this.exportCache.set(filePath, exports);
-        }
-      } catch (error: unknown) {
-        if (this.options.verbose) {
-          const msg = error instanceof Error ? error.message : String(error);
+    const concurrency = this.options.concurrency ?? getDefaultConcurrency();
+    const limit = createLimiter(concurrency);
+    const results = await Promise.all(
+      files.map((filePath: string) =>
+        limit(async () => {
           try {
-            const { default: chalk } = await import('chalk');
-            console.warn(chalk.yellow(`Warning: Could not read file ${filePath}: ${msg}`));
-          } catch {
-            console.warn(`Warning: Could not read file ${filePath}: ${msg}`);
+            const content = await fs.readFile(filePath, 'utf-8');
+            const ext = path.extname(filePath);
+            const plugin = getPluginForExtension(ext, this.options.plugins);
+            const exports = plugin
+              ? plugin.parseExports(content, filePath)
+              : this.parseExportsLegacy(content, filePath);
+
+            if (exports.length > 0) {
+              return { filePath, exports };
+            }
+          } catch (error: unknown) {
+            if (this.options.verbose) {
+              const msg = error instanceof Error ? error.message : String(error);
+              try {
+                const { default: chalk } = await import('chalk');
+                console.warn(chalk.yellow(`Warning: Could not read file ${filePath}: ${msg}`));
+              } catch {
+                console.warn(`Warning: Could not read file ${filePath}: ${msg}`);
+              }
+            }
           }
-        }
+          return null;
+        }),
+      ),
+    );
+
+    for (const result of results) {
+      if (result) {
+        this.exportCache.set(result.filePath, result.exports);
       }
     }
 
