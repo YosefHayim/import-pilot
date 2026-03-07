@@ -22,6 +22,10 @@ export type { CliOptions, MissingImport } from './cli/autoImportCli.js';
 export type { LanguagePlugin } from './plugins/languagePlugin.js';
 export type { ImportGroup, PythonImportGroup } from './sorter/importSorter.js';
 
+// Analyzer
+export { UnusedExportAnalyzer } from './analyzer/unusedExportAnalyzer.js';
+export type { UnusedExport, UnusedExportOptions } from './analyzer/unusedExportAnalyzer.js';
+
 // Reporter
 export {
   writeReport,
