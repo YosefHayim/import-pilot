@@ -1,5 +1,6 @@
-import { ImportResolver, PathAlias } from '@/resolver/importResolver';
+import { ImportResolver, PathAlias, ExportCacheFile } from '@/resolver/importResolver';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
 
 describe('ImportResolver', () => {
@@ -649,6 +650,151 @@ export { foo, baz };
         const resolution = resolver.resolveImport('helper', path.join(tmpDir, 'src', 'app.ts'));
         expect(resolution).not.toBeNull();
         expect(resolution!.source).toBe('./utils/helper');
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('persistent export cache', () => {
+    const CACHE_FILE = '.import-pilot-cache.json';
+
+    it('should create a cache file on disk after buildExportCache', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_cache_create_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+      await fs.writeFile(path.join(tmpDir, 'util.ts'), 'export function helper() {}');
+
+      try {
+        const resolver = new ImportResolver({ projectRoot: tmpDir, useCache: true });
+        await resolver.buildExportCache();
+
+        const cachePath = path.join(tmpDir, CACHE_FILE);
+        expect(fsSync.existsSync(cachePath)).toBe(true);
+
+        const cacheData: ExportCacheFile = JSON.parse(fsSync.readFileSync(cachePath, 'utf-8'));
+        expect(cacheData.version).toBe(1);
+        expect(typeof cacheData.files).toBe('object');
+
+        const entries = Object.values(cacheData.files);
+        expect(entries.length).toBeGreaterThan(0);
+        expect(entries[0].mtime).toBeGreaterThan(0);
+        expect(entries[0].exports.length).toBeGreaterThan(0);
+        expect(entries[0].exports[0].name).toBe('helper');
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should use cached exports when file mtime is unchanged (cache hit)', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_cache_hit_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+      const filePath = path.join(tmpDir, 'util.ts');
+      await fs.writeFile(filePath, 'export function helper() {}');
+
+      try {
+        const resolver1 = new ImportResolver({ projectRoot: tmpDir, useCache: true });
+        await resolver1.buildExportCache();
+
+        const cachePath = path.join(tmpDir, CACHE_FILE);
+        const cacheData: ExportCacheFile = JSON.parse(fsSync.readFileSync(cachePath, 'utf-8'));
+        const cachedFileKey = Object.keys(cacheData.files)[0];
+        cacheData.files[cachedFileKey].exports = [
+          { name: 'SENTINEL_FROM_CACHE', source: cachedFileKey, isDefault: false },
+        ];
+        fsSync.writeFileSync(cachePath, JSON.stringify(cacheData), 'utf-8');
+
+        const resolver2 = new ImportResolver({ projectRoot: tmpDir, useCache: true });
+        await resolver2.buildExportCache();
+
+        const cache = resolver2.getExportCache();
+        const allExports = Array.from(cache.values()).flat();
+        expect(allExports.some((e) => e.name === 'SENTINEL_FROM_CACHE')).toBe(true);
+        expect(allExports.some((e) => e.name === 'helper')).toBe(false);
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should re-parse file when mtime has changed (cache miss)', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_cache_miss_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+      const filePath = path.join(tmpDir, 'util.ts');
+      await fs.writeFile(filePath, 'export function helper() {}');
+
+      try {
+        const resolver1 = new ImportResolver({ projectRoot: tmpDir, useCache: true });
+        await resolver1.buildExportCache();
+
+        const cachePath = path.join(tmpDir, CACHE_FILE);
+        const cacheData: ExportCacheFile = JSON.parse(fsSync.readFileSync(cachePath, 'utf-8'));
+        const cachedFileKey = Object.keys(cacheData.files)[0];
+        cacheData.files[cachedFileKey].mtime = 0;
+        cacheData.files[cachedFileKey].exports = [{ name: 'STALE_SENTINEL', source: cachedFileKey, isDefault: false }];
+        fsSync.writeFileSync(cachePath, JSON.stringify(cacheData), 'utf-8');
+
+        const resolver2 = new ImportResolver({ projectRoot: tmpDir, useCache: true });
+        await resolver2.buildExportCache();
+
+        const cache = resolver2.getExportCache();
+        const allExports = Array.from(cache.values()).flat();
+        expect(allExports.some((e) => e.name === 'helper')).toBe(true);
+        expect(allExports.some((e) => e.name === 'STALE_SENTINEL')).toBe(false);
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should not create cache file when useCache is false (--no-cache)', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_no_cache_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+      await fs.writeFile(path.join(tmpDir, 'util.ts'), 'export function helper() {}');
+
+      try {
+        const resolver = new ImportResolver({ projectRoot: tmpDir, useCache: false });
+        await resolver.buildExportCache();
+
+        const cachePath = path.join(tmpDir, CACHE_FILE);
+        expect(fsSync.existsSync(cachePath)).toBe(false);
+
+        const cache = resolver.getExportCache();
+        const allExports = Array.from(cache.values()).flat();
+        expect(allExports.some((e) => e.name === 'helper')).toBe(true);
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should handle corrupted cache file gracefully', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_cache_corrupt_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+      await fs.writeFile(path.join(tmpDir, 'util.ts'), 'export function helper() {}');
+      fsSync.writeFileSync(path.join(tmpDir, CACHE_FILE), 'NOT_VALID_JSON');
+
+      try {
+        const resolver = new ImportResolver({ projectRoot: tmpDir, useCache: true });
+        await resolver.buildExportCache();
+
+        const cache = resolver.getExportCache();
+        const allExports = Array.from(cache.values()).flat();
+        expect(allExports.some((e) => e.name === 'helper')).toBe(true);
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should handle wrong cache version gracefully', async () => {
+      const tmpDir = path.join(process.cwd(), 'tests', '_tmp_cache_version_test');
+      await fs.mkdir(tmpDir, { recursive: true });
+      await fs.writeFile(path.join(tmpDir, 'util.ts'), 'export function helper() {}');
+      fsSync.writeFileSync(path.join(tmpDir, CACHE_FILE), JSON.stringify({ version: 999, files: {} }));
+
+      try {
+        const resolver = new ImportResolver({ projectRoot: tmpDir, useCache: true });
+        await resolver.buildExportCache();
+
+        const cache = resolver.getExportCache();
+        const allExports = Array.from(cache.values()).flat();
+        expect(allExports.some((e) => e.name === 'helper')).toBe(true);
       } finally {
         await fs.rm(tmpDir, { recursive: true, force: true });
       }

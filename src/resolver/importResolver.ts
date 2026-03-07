@@ -1,4 +1,5 @@
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
 
 import { glob } from 'glob';
@@ -19,7 +20,21 @@ export interface ResolverOptions {
   useAliases?: boolean;
   plugins?: LanguagePlugin[];
   verbose?: boolean;
+  useCache?: boolean;
 }
+
+export interface ExportCacheFileEntry {
+  mtime: number;
+  exports: ExportInfo[];
+}
+
+export interface ExportCacheFile {
+  version: number;
+  files: Record<string, ExportCacheFileEntry>;
+}
+
+const CACHE_FILE_NAME = '.import-pilot-cache.json';
+const CACHE_VERSION = 1;
 
 export interface PathAlias {
   pattern: string; // e.g. "@/*"
@@ -57,6 +72,13 @@ export class ImportResolver {
       await this.loadPathAliases();
     }
 
+    const useCache = this.options.useCache !== false;
+    const cachePath = path.join(this.options.projectRoot, CACHE_FILE_NAME);
+    let diskCache: ExportCacheFile | null = null;
+    if (useCache) {
+      diskCache = this.loadDiskCache(cachePath);
+    }
+
     const pattern = `**/*{${this.options.extensions!.join(',')}}`;
     const files = await glob(pattern, {
       cwd: this.options.projectRoot,
@@ -65,6 +87,10 @@ export class ImportResolver {
         '**/dist/**',
         '**/build/**',
         '**/.next/**',
+        '**/.git/**',
+        '**/.vscode/**',
+        '**/.idea/**',
+        '**/coverage/**',
         '**/__pycache__/**',
         '**/.venv/**',
         '**/venv/**',
@@ -73,8 +99,22 @@ export class ImportResolver {
       nodir: true,
     });
 
+    const newDiskEntries: Record<string, ExportCacheFileEntry> = {};
+
     for (const filePath of files) {
       try {
+        const stat = fsSync.statSync(filePath);
+        const mtime = stat.mtimeMs;
+
+        if (diskCache && diskCache.files[filePath] && diskCache.files[filePath].mtime === mtime) {
+          const cachedExports = diskCache.files[filePath].exports;
+          if (cachedExports.length > 0) {
+            this.exportCache.set(filePath, cachedExports);
+          }
+          newDiskEntries[filePath] = diskCache.files[filePath];
+          continue;
+        }
+
         const content = await fs.readFile(filePath, 'utf-8');
         const ext = path.extname(filePath);
         const plugin = getPluginForExtension(ext, this.options.plugins);
@@ -83,6 +123,8 @@ export class ImportResolver {
         if (exports.length > 0) {
           this.exportCache.set(filePath, exports);
         }
+
+        newDiskEntries[filePath] = { mtime, exports };
       } catch (error: unknown) {
         if (this.options.verbose) {
           const msg = error instanceof Error ? error.message : String(error);
@@ -94,6 +136,10 @@ export class ImportResolver {
           }
         }
       }
+    }
+
+    if (useCache) {
+      this.writeDiskCache(cachePath, newDiskEntries);
     }
 
     // Second pass: resolve export * re-exports (1 level only)
@@ -128,6 +174,28 @@ export class ImportResolver {
       } else {
         this.exportCache.delete(filePath);
       }
+    }
+  }
+
+  private loadDiskCache(cachePath: string): ExportCacheFile | null {
+    try {
+      const raw = fsSync.readFileSync(cachePath, 'utf-8');
+      const parsed = JSON.parse(raw) as ExportCacheFile;
+      if (parsed.version !== CACHE_VERSION || typeof parsed.files !== 'object') {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  private writeDiskCache(cachePath: string, files: Record<string, ExportCacheFileEntry>): void {
+    const cacheData: ExportCacheFile = { version: CACHE_VERSION, files };
+    try {
+      fsSync.writeFileSync(cachePath, JSON.stringify(cacheData), 'utf-8');
+    } catch {
+      // Silently ignore write errors (e.g., read-only fs)
     }
   }
 

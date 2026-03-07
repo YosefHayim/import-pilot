@@ -22,6 +22,8 @@ export class FileScanner {
     '**/build/**',
     '**/.next/**',
     '**/.git/**',
+    '**/.vscode/**',
+    '**/.idea/**',
     '**/coverage/**',
     '**/__pycache__/**',
     '**/.venv/**',

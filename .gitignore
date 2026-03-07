@@ -43,5 +43,8 @@ firebase-debug.log
 # Generated reports
 import-pilot-report.*
 
+# Export cache
+.import-pilot-cache.json
+
 # Bun
 bun.lock
