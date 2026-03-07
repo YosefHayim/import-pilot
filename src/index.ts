@@ -24,7 +24,7 @@ export type { ScanOptions, ScannedFile } from './scanner/fileScanner.js';
 export type { ImportStatement, UsedIdentifier, ParseResult } from './parser/astParser.js';
 export type { FrameworkParseResult } from './parser/frameworkParser.js';
 export type { ExportInfo, ResolverOptions, PathAlias } from './resolver/importResolver.js';
-export type { CliOptions, MissingImport } from './cli/autoImportCli.js';
+export type { CliOptions, MissingImport, JsonOutput } from './cli/autoImportCli.js';
 export type { LanguagePlugin } from './plugins/languagePlugin.js';
 export type { ImportGroup, PythonImportGroup } from './sorter/importSorter.js';
 

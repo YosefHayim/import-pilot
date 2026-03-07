@@ -50,6 +50,13 @@ jest.mock('fs/promises', () => ({
   writeFile: mockFsWriteFile,
 }));
 
+jest.mock('minimatch', () => ({
+  minimatch: (filePath: string, pattern: string, _opts?: Record<string, boolean>) => {
+    const { minimatch } = jest.requireActual('minimatch') as { minimatch: typeof import('minimatch').minimatch };
+    return minimatch(filePath, pattern, _opts);
+  },
+}));
+
 // Import AFTER mocks are declared
 import { AutoImportCli, EXIT_CODE_OK, EXIT_CODE_ISSUES_FOUND, EXIT_CODE_CONFIG_ERROR } from '@/cli/autoImportCli';
 
@@ -629,6 +636,136 @@ describe('AutoImportCli', () => {
       const output = allLogOutput(logSpy);
       expect(output).toContain('Files with missing imports: 0');
       expect(output).toContain('Total missing imports: 0');
+    });
+  });
+
+  // ── Quiet mode ───────────────────────────────────────────────────────────
+
+  describe('quiet mode', () => {
+    it('should suppress all stdout when --quiet is set', async () => {
+      const plugin = createMockPlugin({
+        findUsedIdentifiers: jest.fn().mockReturnValue([{ name: 'Foo', line: 1, column: 0 }]),
+      });
+      const cli = new AutoImportCli([plugin]);
+
+      mockScan.mockResolvedValue([{ path: '/project/src/app.ts', content: 'code', ext: '.ts' }]);
+      mockResolveImport.mockReturnValue({ name: 'Foo', source: './foo', isDefault: false });
+
+      await cli.run('/project', { quiet: true, dryRun: true, extensions: '.ts' });
+
+      expect(logSpy).not.toHaveBeenCalled();
+    });
+
+    it('should still work correctly when quiet — identifiers resolved', async () => {
+      const plugin = createMockPlugin({
+        findUsedIdentifiers: jest.fn().mockReturnValue([{ name: 'Foo', line: 1, column: 0 }]),
+      });
+      const cli = new AutoImportCli([plugin]);
+
+      mockScan.mockResolvedValue([{ path: '/project/src/app.ts', content: 'code', ext: '.ts' }]);
+      mockResolveImport.mockReturnValue({ name: 'Foo', source: './foo', isDefault: false });
+
+      await cli.run('/project', { quiet: true, dryRun: true, extensions: '.ts' });
+
+      expect(mockResolveImport).toHaveBeenCalledWith('Foo', '/project/src/app.ts');
+    });
+  });
+
+  // ── JSON output mode ────────────────────────────────────────────────────
+
+  describe('json output mode', () => {
+    it('should output valid JSON with correct structure', async () => {
+      const plugin = createMockPlugin({
+        findUsedIdentifiers: jest.fn().mockReturnValue([
+          { name: 'Foo', line: 1, column: 0 },
+          { name: 'Bar', line: 2, column: 0 },
+        ]),
+      });
+      const cli = new AutoImportCli([plugin]);
+
+      mockScan.mockResolvedValue([{ path: '/project/src/app.ts', content: 'code', ext: '.ts' }]);
+      mockResolveImport
+        .mockReturnValueOnce({ name: 'Foo', source: './foo', isDefault: false })
+        .mockReturnValueOnce(null);
+
+      await cli.run('/project', { json: true, extensions: '.ts' });
+
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const jsonStr = logSpy.mock.calls[0][0] as string;
+      const parsed = JSON.parse(jsonStr);
+
+      expect(parsed).toEqual({
+        filesScanned: 1,
+        filesWithIssues: 1,
+        missingImports: [{ file: 'src/app.ts', identifier: 'Foo', resolved: true, source: './foo' }],
+        unresolved: [{ file: 'src/app.ts', identifier: 'Bar' }],
+      });
+    });
+
+    it('should suppress non-JSON output when --json is set', async () => {
+      const cli = new AutoImportCli([createMockPlugin()]);
+      mockScan.mockResolvedValue([]);
+
+      await cli.run('/project', { json: true, extensions: '.ts' });
+
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const jsonStr = logSpy.mock.calls[0][0] as string;
+      const parsed = JSON.parse(jsonStr);
+      expect(parsed.filesScanned).toBe(0);
+      expect(parsed.missingImports).toEqual([]);
+      expect(parsed.unresolved).toEqual([]);
+    });
+
+    it('should not apply fixes in json mode (returns early)', async () => {
+      const plugin = createMockPlugin({
+        findUsedIdentifiers: jest.fn().mockReturnValue([{ name: 'Foo', line: 1, column: 0 }]),
+      });
+      const cli = new AutoImportCli([plugin]);
+
+      mockScan.mockResolvedValue([{ path: '/project/src/app.ts', content: 'code', ext: '.ts' }]);
+      mockResolveImport.mockReturnValue({ name: 'Foo', source: './foo', isDefault: false });
+
+      await cli.run('/project', { json: true, extensions: '.ts' });
+
+      expect(mockFsWriteFile).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Glob pattern targets ────────────────────────────────────────────────
+
+  describe('glob pattern targets', () => {
+    it('should filter files by glob pattern', async () => {
+      const plugin = createMockPlugin();
+      const cli = new AutoImportCli([plugin]);
+
+      mockScan.mockResolvedValue([
+        { path: '/project/src/components/Card.tsx', content: 'code', ext: '.tsx' },
+        { path: '/project/src/utils/format.ts', content: 'code', ext: '.ts' },
+        { path: '/project/src/components/Button.tsx', content: 'code', ext: '.tsx' },
+      ]);
+
+      await cli.run('/project', { extensions: '.ts,.tsx', globPattern: 'src/components/**/*.tsx' });
+
+      expect(plugin.parseImports).toHaveBeenCalledTimes(2);
+      const calls = (plugin.parseImports as jest.Mock).mock.calls;
+      const filePaths = calls.map((c: unknown[]) => c[1]);
+      expect(filePaths).toContain('/project/src/components/Card.tsx');
+      expect(filePaths).toContain('/project/src/components/Button.tsx');
+      expect(filePaths).not.toContain('/project/src/utils/format.ts');
+    });
+
+    it('should process all files when no glob pattern is set', async () => {
+      const plugin = createMockPlugin();
+      const cli = new AutoImportCli([plugin]);
+
+      mockScan.mockResolvedValue([
+        { path: '/project/src/a.ts', content: 'code', ext: '.ts' },
+        { path: '/project/src/b.ts', content: 'code', ext: '.ts' },
+      ]);
+
+      await cli.run('/project', { extensions: '.ts' });
+
+      expect(plugin.parseImports).toHaveBeenCalledTimes(2);
     });
   });
 
