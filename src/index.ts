@@ -1,4 +1,5 @@
 export { FileScanner } from './scanner/fileScanner.js';
+export { UnusedFileAnalyzer } from './analyzer/unusedFileAnalyzer.js';
 export { AstParser } from './parser/astParser.js';
 export { FrameworkParser } from './parser/frameworkParser.js';
 export { ImportResolver } from './resolver/importResolver.js';
@@ -20,6 +21,7 @@ export type { FrameworkParseResult } from './parser/frameworkParser.js';
 export type { ExportInfo, ResolverOptions, PathAlias } from './resolver/importResolver.js';
 export type { CliOptions, MissingImport } from './cli/autoImportCli.js';
 export type { LanguagePlugin } from './plugins/languagePlugin.js';
+export type { UnusedFileOptions } from './analyzer/unusedFileAnalyzer.js';
 export type { ImportGroup, PythonImportGroup } from './sorter/importSorter.js';
 
 // Reporter
