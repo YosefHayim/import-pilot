@@ -11,6 +11,7 @@ export {
 } from './cli/autoImportCli.js';
 export { detectProjectLanguages } from './detector/languageDetector.js';
 export { sortImports, groupImportStatements, classifyJsTsImport, classifyPythonImport } from './sorter/importSorter.js';
+export { createLimiter, getDefaultConcurrency, mapWithConcurrency } from './concurrency/limiter.js';
 
 // Plugin system
 export { JsTsPlugin } from './plugins/jsTsPlugin.js';
