@@ -316,39 +316,62 @@ export function sortImports(imports: string[], language: string, sortOrder: stri
   return sortJsTsImports(imports, sortOrder);
 }
 
+function isTypeOnlyImport(imp: string): boolean {
+  return /^\s*import\s+type\s/.test(imp);
+}
+
 function sortJsTsImports(imports: string[], sortOrder: string = 'alpha'): string[] {
-  const groups: Record<ImportGroup, string[]> = {
-    'side-effect': [],
-    builtin: [],
-    external: [],
-    alias: [],
-    relative: [],
-  };
+  const valueImports: string[] = [];
+  const typeImports: string[] = [];
 
   for (const imp of imports) {
-    const group = classifyJsTsImport(imp);
-    groups[group].push(imp);
+    if (isTypeOnlyImport(imp)) {
+      typeImports.push(imp);
+    } else {
+      valueImports.push(imp);
+    }
   }
 
-  const groupOrder = [groups['side-effect'], groups.builtin, groups.external, groups.alias, groups.relative];
+  const sortGroup = (groupImports: string[]): string[] => {
+    const groups: Record<ImportGroup, string[]> = {
+      'side-effect': [],
+      builtin: [],
+      external: [],
+      alias: [],
+      relative: [],
+    };
 
-  if (sortOrder === 'natural') {
-    // Preserve original order within groups
+    for (const imp of groupImports) {
+      const group = classifyJsTsImport(imp);
+      groups[group].push(imp);
+    }
+
+    const groupOrder = [groups['side-effect'], groups.builtin, groups.external, groups.alias, groups.relative];
+
+    if (sortOrder === 'natural') {
+      return assembleGroups(groupOrder);
+    }
+
+    const sortBySource = (a: string, b: string): number => {
+      const sourceA = extractSource(a).toLowerCase();
+      const sourceB = extractSource(b).toLowerCase();
+      return sourceA.localeCompare(sourceB);
+    };
+
+    for (const key of Object.keys(groups) as ImportGroup[]) {
+      groups[key].sort(sortBySource);
+    }
+
     return assembleGroups(groupOrder);
-  }
-
-  // Default 'alpha' sort
-  const sortBySource = (a: string, b: string): number => {
-    const sourceA = extractSource(a).toLowerCase();
-    const sourceB = extractSource(b).toLowerCase();
-    return sourceA.localeCompare(sourceB);
   };
 
-  for (const key of Object.keys(groups) as ImportGroup[]) {
-    groups[key].sort(sortBySource);
-  }
+  const sortedValues = sortGroup(valueImports);
+  const sortedTypes = sortGroup(typeImports);
 
-  return assembleGroups(groupOrder);
+  if (sortedValues.length === 0) return sortedTypes;
+  if (sortedTypes.length === 0) return sortedValues;
+
+  return [...sortedValues, '', ...sortedTypes];
 }
 
 function sortPythonImports(imports: string[], sortOrder: string = 'alpha'): string[] {
