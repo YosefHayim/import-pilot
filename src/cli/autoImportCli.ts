@@ -16,6 +16,8 @@ export const EXIT_CODE_OK = 0;
 export const EXIT_CODE_ISSUES_FOUND = 1;
 export const EXIT_CODE_CONFIG_ERROR = 2;
 
+export type OperationMode = 'add' | 'sort-only' | 'remove-unused' | 'organize';
+
 export interface CliOptions {
   dryRun?: boolean;
   verbose?: boolean;
@@ -30,6 +32,10 @@ export interface CliOptions {
   json?: boolean;
   globPattern?: string;
   watch?: boolean;
+  sortOnly?: boolean;
+  addOnly?: boolean;
+  removeUnused?: boolean;
+  organize?: boolean;
 }
 
 export interface JsonOutput {
@@ -58,15 +64,24 @@ export class AutoImportCli {
     this.plugins = plugins ?? getDefaultPlugins();
   }
 
+  resolveMode(options: CliOptions): OperationMode {
+    if (options.organize) return 'organize';
+    if (options.sortOnly) return 'sort-only';
+    if (options.removeUnused) return 'remove-unused';
+    return 'add';
+  }
+
   async run(directory: string, options: CliOptions = {}): Promise<number> {
     const startTime = Date.now();
     const quiet = !!options.quiet || !!options.json;
     const log = (...args: unknown[]) => {
       if (!quiet) console.log(...args);
     };
+    const mode = this.resolveMode(options);
 
     log(chalk.blue('🔍 Import Pilot'));
-    log(chalk.gray(`Scanning directory: ${directory}\n`));
+    log(chalk.gray(`Scanning directory: ${directory}`));
+    log(chalk.gray(`Mode: ${mode}\n`));
 
     const projectRoot = path.resolve(directory);
 
@@ -89,16 +104,18 @@ export class AutoImportCli {
       }
     }
 
-    log(chalk.yellow('Building export cache...'));
-    this.resolver = new ImportResolver({
-      projectRoot,
-      extensions,
-      useAliases: options.alias !== false,
-      plugins: this.plugins,
-      verbose: options.verbose && !quiet,
-    });
-    await this.resolver.buildExportCache();
-    log(chalk.green('✓ Export cache built\n'));
+    if (mode !== 'sort-only') {
+      log(chalk.yellow('Building export cache...'));
+      this.resolver = new ImportResolver({
+        projectRoot,
+        extensions,
+        useAliases: options.alias !== false,
+        plugins: this.plugins,
+        verbose: options.verbose && !quiet,
+      });
+      await this.resolver.buildExportCache();
+      log(chalk.green('✓ Export cache built\n'));
+    }
 
     const ignore = options.ignore ? options.ignore.split(',').map((pattern) => pattern.trim()) : undefined;
 
@@ -119,6 +136,271 @@ export class AutoImportCli {
 
     log(chalk.gray(`Found ${files.length} files to analyze\n`));
 
+    if (mode === 'sort-only') {
+      await this.runSortOnly(files, projectRoot, options);
+      return EXIT_CODE_OK;
+    } else if (mode === 'remove-unused') {
+      await this.runRemoveUnused(files, projectRoot, options);
+      return EXIT_CODE_OK;
+    } else if (mode === 'organize') {
+      await this.runOrganize(files, projectRoot, options);
+      return EXIT_CODE_OK;
+    } else {
+      return await this.runAddMissing(files, projectRoot, options, startTime);
+    }
+  }
+
+  private async runSortOnly(
+    files: { path: string; content: string; ext: string }[],
+    projectRoot: string,
+    options: CliOptions,
+  ): Promise<void> {
+    let filesSorted = 0;
+
+    for (const file of files) {
+      const plugin = getPluginForExtension(file.ext, this.plugins);
+      if (!plugin) continue;
+
+      const existingImports = plugin.parseImports(file.content, file.path);
+      if (existingImports.length === 0) continue;
+
+      const lang = this.getLanguageForExt(file.ext);
+      const importStatements = existingImports.map((imp) => {
+        if (imp.isNamespace) {
+          const namespaceName = imp.imports[0];
+          return `import * as ${namespaceName} from '${imp.source}';`;
+        }
+        if (imp.isDefault) {
+          return plugin.generateImportStatement(imp.imports[0], imp.source, true);
+        }
+        return imp.imports.length === 1
+          ? plugin.generateImportStatement(imp.imports[0], imp.source, false)
+          : `import { ${imp.imports.join(', ')} } from '${imp.source}';`;
+      });
+
+      const sorted = sortImports(importStatements, lang, options.sortOrder);
+
+      const originalBlock = importStatements.join('\n');
+      const sortedBlock = sorted.join('\n');
+      if (originalBlock === sortedBlock) continue;
+
+      filesSorted++;
+
+      if (options.verbose) {
+        console.log(chalk.yellow(`📄 ${path.relative(projectRoot, file.path)}`));
+      }
+
+      if (!options.dryRun) {
+        let content = file.content;
+        for (const imp of existingImports) {
+          const escapedSource = imp.source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const importPattern = new RegExp(`^\\s*import\\s+.*?['"]${escapedSource}['"]\\s*;?\\s*\\n?`, 'gm');
+          content = content.replace(importPattern, '');
+        }
+        content = content.replace(/^\n+/, '');
+        const newContent = plugin.insertImports(content, sorted, file.path);
+        await fs.writeFile(file.path, newContent, 'utf-8');
+      }
+    }
+
+    console.log(chalk.blue('\n📊 Summary:'));
+    console.log(chalk.gray(`  Total files scanned: ${files.length}`));
+    console.log(chalk.gray(`  Files re-sorted: ${filesSorted}`));
+    if (options.dryRun) {
+      console.log(chalk.yellow('\n⚠️  Dry run mode - no files were modified'));
+    } else if (filesSorted > 0) {
+      console.log(chalk.green('\n✓ Imports sorted successfully'));
+    }
+  }
+
+  private async runRemoveUnused(
+    files: { path: string; content: string; ext: string }[],
+    projectRoot: string,
+    options: CliOptions,
+  ): Promise<void> {
+    let filesModified = 0;
+    let totalRemoved = 0;
+
+    for (const file of files) {
+      const plugin = getPluginForExtension(file.ext, this.plugins);
+      if (!plugin) continue;
+
+      const existingImports = plugin.parseImports(file.content, file.path);
+      if (existingImports.length === 0) continue;
+
+      const usedIdentifiers = plugin.findUsedIdentifiers(file.content, file.path);
+      const usedNames = new Set(usedIdentifiers.map((id) => id.name));
+
+      const currentFileExports = plugin.parseExports(file.content, file.path);
+      currentFileExports.forEach((exp) => usedNames.add(exp.name));
+
+      const unusedImports: { source: string; names: string[] }[] = [];
+
+      for (const imp of existingImports) {
+        const unusedNames = imp.imports.filter((name) => !usedNames.has(name));
+        if (unusedNames.length > 0 && unusedNames.length === imp.imports.length) {
+          unusedImports.push({ source: imp.source, names: unusedNames });
+        }
+      }
+
+      if (unusedImports.length === 0) continue;
+
+      filesModified++;
+      totalRemoved += unusedImports.reduce((sum, u) => sum + u.names.length, 0);
+
+      if (options.verbose) {
+        console.log(chalk.yellow(`\n📄 ${path.relative(projectRoot, file.path)}`));
+        for (const unused of unusedImports) {
+          console.log(chalk.gray(`  - Removing: ${unused.names.join(', ')} from '${unused.source}'`));
+        }
+      }
+
+      if (!options.dryRun) {
+        let content = file.content;
+        for (const unused of unusedImports) {
+          const escapedSource = unused.source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const importPattern = new RegExp(`^\\s*import\\s+.*?['"]${escapedSource}['"]\\s*;?\\s*\\n?`, 'gm');
+          content = content.replace(importPattern, '');
+        }
+        await fs.writeFile(file.path, content, 'utf-8');
+      }
+    }
+
+    console.log(chalk.blue('\n📊 Summary:'));
+    console.log(chalk.gray(`  Total files scanned: ${files.length}`));
+    console.log(chalk.gray(`  Files with unused imports: ${filesModified}`));
+    console.log(chalk.gray(`  Total imports removed: ${totalRemoved}`));
+    if (options.dryRun) {
+      console.log(chalk.yellow('\n⚠️  Dry run mode - no files were modified'));
+    } else if (filesModified > 0) {
+      console.log(chalk.green('\n✓ Unused imports removed successfully'));
+    }
+  }
+
+  private async runOrganize(
+    files: { path: string; content: string; ext: string }[],
+    projectRoot: string,
+    options: CliOptions,
+  ): Promise<void> {
+    let filesModified = 0;
+    let totalRemoved = 0;
+    let totalAdded = 0;
+
+    for (const file of files) {
+      const plugin = getPluginForExtension(file.ext, this.plugins);
+      if (!plugin) continue;
+
+      const existingImports = plugin.parseImports(file.content, file.path);
+      const usedIdentifiers = plugin.findUsedIdentifiers(file.content, file.path);
+      const usedNames = new Set(usedIdentifiers.map((id) => id.name));
+
+      const currentFileExports = plugin.parseExports(file.content, file.path);
+      const exportedNames = new Set<string>();
+      currentFileExports.forEach((exp) => {
+        exportedNames.add(exp.name);
+        usedNames.add(exp.name);
+      });
+
+      const keptImportStatements: string[] = [];
+      let removedCount = 0;
+
+      for (const imp of existingImports) {
+        const usedInImport = imp.imports.filter((name) => usedNames.has(name));
+        if (usedInImport.length === 0) {
+          removedCount += imp.imports.length;
+          continue;
+        }
+        if (imp.isNamespace) {
+          keptImportStatements.push(`import * as ${usedInImport[0]} from '${imp.source}';`);
+        } else if (imp.isDefault) {
+          keptImportStatements.push(plugin.generateImportStatement(usedInImport[0], imp.source, true));
+        } else {
+          keptImportStatements.push(
+            usedInImport.length === 1
+              ? plugin.generateImportStatement(usedInImport[0], imp.source, false)
+              : `import { ${usedInImport.join(', ')} } from '${imp.source}';`,
+          );
+        }
+      }
+
+      const importedNames = new Set<string>();
+      existingImports.forEach((imp) => imp.imports.forEach((name) => importedNames.add(name)));
+
+      const missingIdentifiers = usedIdentifiers
+        .map((id) => id.name)
+        .filter((name, idx, self) => self.indexOf(name) === idx)
+        .filter((name) => !importedNames.has(name))
+        .filter((name) => !exportedNames.has(name))
+        .filter((name) => !plugin.isBuiltInOrKeyword(name));
+
+      const newImports: string[] = [];
+      for (const identifier of missingIdentifiers) {
+        const resolution = this.resolver!.resolveImport(identifier, file.path);
+        if (resolution) {
+          newImports.push(plugin.generateImportStatement(identifier, resolution.source, resolution.isDefault));
+          totalAdded++;
+        }
+      }
+
+      const lang = this.getLanguageForExt(file.ext);
+      const allImports = [...keptImportStatements, ...newImports];
+      const sorted = sortImports(allImports, lang, options.sortOrder);
+
+      if (removedCount === 0 && newImports.length === 0) {
+        const originalStatements = existingImports.map((imp) => {
+          if (imp.isNamespace) return `import * as ${imp.imports[0]} from '${imp.source}';`;
+          if (imp.isDefault) return plugin.generateImportStatement(imp.imports[0], imp.source, true);
+          return imp.imports.length === 1
+            ? plugin.generateImportStatement(imp.imports[0], imp.source, false)
+            : `import { ${imp.imports.join(', ')} } from '${imp.source}';`;
+        });
+        if (originalStatements.join('\n') === sorted.join('\n')) continue;
+      }
+
+      filesModified++;
+      totalRemoved += removedCount;
+
+      if (options.verbose) {
+        console.log(chalk.yellow(`\n📄 ${path.relative(projectRoot, file.path)}`));
+        if (removedCount > 0) console.log(chalk.gray(`  Removed ${removedCount} unused import(s)`));
+        if (newImports.length > 0) console.log(chalk.gray(`  Added ${newImports.length} missing import(s)`));
+      }
+
+      if (!options.dryRun) {
+        let content = file.content;
+        for (const imp of existingImports) {
+          const escapedSource = imp.source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const importPattern = new RegExp(`^\\s*import\\s+.*?['"]${escapedSource}['"]\\s*;?\\s*\\n?`, 'gm');
+          content = content.replace(importPattern, '');
+        }
+        content = content.replace(/^\n+/, '');
+        const newContent = plugin.insertImports(content, sorted, file.path);
+        await fs.writeFile(file.path, newContent, 'utf-8');
+      }
+    }
+
+    console.log(chalk.blue('\n📊 Summary:'));
+    console.log(chalk.gray(`  Total files scanned: ${files.length}`));
+    console.log(chalk.gray(`  Files organized: ${filesModified}`));
+    console.log(chalk.gray(`  Imports removed: ${totalRemoved}`));
+    console.log(chalk.gray(`  Imports added: ${totalAdded}`));
+    if (options.dryRun) {
+      console.log(chalk.yellow('\n⚠️  Dry run mode - no files were modified'));
+    } else if (filesModified > 0) {
+      console.log(chalk.green('\n✓ Imports organized successfully'));
+    }
+  }
+
+  private async runAddMissing(
+    files: { path: string; content: string; ext: string }[],
+    projectRoot: string,
+    options: CliOptions,
+    startTime: number,
+  ): Promise<number> {
+    const quiet = !!options.quiet || !!options.json;
+    const log = (...args: unknown[]) => {
+      if (!quiet) console.log(...args);
+    };
     const allMissingImports: MissingImport[] = [];
     const reportEntries: ReportEntry[] = [];
     let filesWithIssues = 0;
@@ -226,7 +508,7 @@ export class AutoImportCli {
           })),
       };
       console.log(JSON.stringify(jsonOutput, null, 2));
-      return;
+      return EXIT_CODE_OK;
     }
 
     log(chalk.blue('\n\n📊 Summary:'));
@@ -491,7 +773,19 @@ export function createCli(): Command {
     .option('-q, --quiet', 'Suppress all stdout output except errors')
     .option('--json', 'Output scan results as JSON (implies --quiet for non-JSON output)')
     .option('-w, --watch', 'Watch for file changes and fix imports automatically')
+    .option('--sort-only', 'Only sort/group existing imports without adding new ones')
+    .option('--add-only', 'Only add missing imports (default behavior)')
+    .option('--remove-unused', 'Only remove imports that are not used in the file')
+    .option('--organize', 'Full pipeline: sort + remove unused + add missing')
     .action(async (directory: string, options: CliOptions) => {
+      const modeFlags = [options.sortOnly, options.addOnly, options.removeUnused, options.organize].filter(Boolean);
+      if (modeFlags.length > 1) {
+        console.error(
+          chalk.red('Error: --sort-only, --add-only, --remove-unused, and --organize are mutually exclusive'),
+        );
+        process.exit(1);
+      }
+
       try {
         const hasGlobChars = /[*?{}\[\]]/.test(directory);
         if (hasGlobChars) {
