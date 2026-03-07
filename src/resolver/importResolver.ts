@@ -165,6 +165,26 @@ export class ImportResolver {
     };
   }
 
+  /**
+   * Returns ALL matching exports for an identifier (for interactive disambiguation).
+   * Each match includes the resolved import path relative to currentFile.
+   */
+  resolveAllImports(identifier: string, currentFile: string): ExportInfo[] {
+    const allMatches: { filePath: string; exportInfo: ExportInfo }[] = [];
+    for (const [filePath, exports] of this.exportCache.entries()) {
+      if (filePath === currentFile) continue;
+      const matchingExport = exports.find((exp) => exp.name === identifier);
+      if (matchingExport) {
+        allMatches.push({ filePath, exportInfo: matchingExport });
+      }
+    }
+
+    return allMatches.map((m) => ({
+      ...m.exportInfo,
+      source: this.getRelativeImportPath(currentFile, m.filePath),
+    }));
+  }
+
   private parseExportsLegacy(content: string, filePath: string): ExportInfo[] {
     const exports: ExportInfo[] = [];
     let match;
