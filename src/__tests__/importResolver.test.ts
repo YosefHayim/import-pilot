@@ -655,6 +655,96 @@ export { foo, baz };
     });
   });
 
+  describe('FIX #89: simplify index file import paths', () => {
+    it('should strip /index from relative import paths (index.ts)', () => {
+      const resolver = new ImportResolver({ projectRoot: '/test' });
+      const getRelativeImportPath = (resolver as any).getRelativeImportPath.bind(resolver);
+
+      const result = getRelativeImportPath('/test/app.ts', '/test/components/Button/index.ts');
+      expect(result).toBe('./components/Button');
+    });
+
+    it('should strip /index from relative import paths (index.tsx)', () => {
+      const resolver = new ImportResolver({ projectRoot: '/test' });
+      const getRelativeImportPath = (resolver as any).getRelativeImportPath.bind(resolver);
+
+      const result = getRelativeImportPath('/test/app.ts', '/test/components/Button/index.tsx');
+      expect(result).toBe('./components/Button');
+    });
+
+    it('should strip /index from relative import paths (index.js)', () => {
+      const resolver = new ImportResolver({ projectRoot: '/test' });
+      const getRelativeImportPath = (resolver as any).getRelativeImportPath.bind(resolver);
+
+      const result = getRelativeImportPath('/test/app.ts', '/test/components/Button/index.js');
+      expect(result).toBe('./components/Button');
+    });
+
+    it('should strip /index from relative import paths (index.jsx)', () => {
+      const resolver = new ImportResolver({ projectRoot: '/test' });
+      const getRelativeImportPath = (resolver as any).getRelativeImportPath.bind(resolver);
+
+      const result = getRelativeImportPath('/test/app.ts', '/test/components/Button/index.jsx');
+      expect(result).toBe('./components/Button');
+    });
+
+    it('should strip /index from alias import paths', () => {
+      const resolver = new ImportResolver({ projectRoot: '/project' });
+
+      (resolver as any).pathAliases = [
+        { pattern: '@/*', prefix: '@/', targetPrefix: '/project/src/' },
+      ] satisfies PathAlias[];
+
+      const getAliasImportPath = (resolver as any).getAliasImportPath.bind(resolver);
+
+      expect(getAliasImportPath('/project/src/components/Button/index.ts')).toBe('@/components/Button');
+      expect(getAliasImportPath('/project/src/components/Button/index.tsx')).toBe('@/components/Button');
+      expect(getAliasImportPath('/project/src/components/Button/index.js')).toBe('@/components/Button');
+      expect(getAliasImportPath('/project/src/components/Button/index.jsx')).toBe('@/components/Button');
+    });
+
+    it('should strip /index from deeply nested alias paths', () => {
+      const resolver = new ImportResolver({ projectRoot: '/project' });
+
+      (resolver as any).pathAliases = [
+        { pattern: '@/*', prefix: '@/', targetPrefix: '/project/src/' },
+      ] satisfies PathAlias[];
+
+      const getAliasImportPath = (resolver as any).getAliasImportPath.bind(resolver);
+
+      expect(getAliasImportPath('/project/src/components/ui/Button/index.ts')).toBe('@/components/ui/Button');
+    });
+
+    it('should NOT strip /index from non-index files', () => {
+      const resolver = new ImportResolver({ projectRoot: '/test' });
+      const getRelativeImportPath = (resolver as any).getRelativeImportPath.bind(resolver);
+
+      const result = getRelativeImportPath('/test/app.ts', '/test/components/Button.ts');
+      expect(result).toBe('./components/Button');
+    });
+
+    it('should NOT strip /index from files that merely contain "index" in the name', () => {
+      const resolver = new ImportResolver({ projectRoot: '/test' });
+      const getRelativeImportPath = (resolver as any).getRelativeImportPath.bind(resolver);
+
+      const result = getRelativeImportPath('/test/app.ts', '/test/components/indexManager.ts');
+      expect(result).toBe('./components/indexManager');
+    });
+
+    it('should strip /index from alias path via getRelativeImportPath', () => {
+      const resolver = new ImportResolver({ projectRoot: '/project' });
+
+      (resolver as any).pathAliases = [
+        { pattern: '@/*', prefix: '@/', targetPrefix: '/project/src/' },
+      ] satisfies PathAlias[];
+
+      const getRelativeImportPath = (resolver as any).getRelativeImportPath.bind(resolver);
+
+      const result = getRelativeImportPath('/project/src/app.ts', '/project/src/components/Button/index.ts');
+      expect(result).toBe('@/components/Button');
+    });
+  });
+
   describe('FIX #91: tsconfig extends chain', () => {
     it('should inherit paths from base tsconfig via extends', async () => {
       const tmpDir = path.join(process.cwd(), 'tests', '_tmp_extends_base_test');
