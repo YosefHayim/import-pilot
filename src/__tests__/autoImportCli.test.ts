@@ -51,7 +51,7 @@ jest.mock('fs/promises', () => ({
 }));
 
 // Import AFTER mocks are declared
-import { AutoImportCli } from '@/cli/autoImportCli';
+import { AutoImportCli, EXIT_CODE_OK, EXIT_CODE_ISSUES_FOUND, EXIT_CODE_CONFIG_ERROR } from '@/cli/autoImportCli';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function createMockPlugin(overrides: Partial<LanguagePlugin> = {}): LanguagePlugin {
@@ -655,6 +655,82 @@ describe('AutoImportCli', () => {
       await cli.run('/project', { extensions: '.ts', alias: false });
 
       expect(ImportResolver).toHaveBeenCalledWith(expect.objectContaining({ useAliases: false }));
+    });
+  });
+
+  // ── Exit codes ────────────────────────────────────────────────────────────
+
+  describe('exit codes', () => {
+    it('should export exit code constants', () => {
+      expect(EXIT_CODE_OK).toBe(0);
+      expect(EXIT_CODE_ISSUES_FOUND).toBe(1);
+      expect(EXIT_CODE_CONFIG_ERROR).toBe(2);
+    });
+
+    it('should return 0 when no missing imports found', async () => {
+      const cli = new AutoImportCli([createMockPlugin()]);
+      mockScan.mockResolvedValue([{ path: '/project/src/app.ts', content: 'code', ext: '.ts' }]);
+
+      const exitCode = await cli.run('/project', { extensions: '.ts' });
+
+      expect(exitCode).toBe(0);
+    });
+
+    it('should return 1 in dry-run mode when missing imports found', async () => {
+      const plugin = createMockPlugin({
+        findUsedIdentifiers: jest.fn().mockReturnValue([{ name: 'Foo', line: 1, column: 0 }]),
+      });
+      const cli = new AutoImportCli([plugin]);
+
+      mockScan.mockResolvedValue([{ path: '/project/src/app.ts', content: 'code', ext: '.ts' }]);
+      mockResolveImport.mockReturnValue({ name: 'Foo', source: './foo', isDefault: false });
+
+      const exitCode = await cli.run('/project', { dryRun: true, extensions: '.ts' });
+
+      expect(exitCode).toBe(1);
+    });
+
+    it('should return 0 when all missing imports are fixed successfully', async () => {
+      const plugin = createMockPlugin({
+        findUsedIdentifiers: jest.fn().mockReturnValue([{ name: 'Foo', line: 1, column: 0 }]),
+      });
+      const cli = new AutoImportCli([plugin]);
+
+      mockScan.mockResolvedValue([{ path: '/project/src/app.ts', content: 'Foo();', ext: '.ts' }]);
+      mockResolveImport.mockReturnValue({ name: 'Foo', source: './foo', isDefault: false });
+      mockFsReadFile.mockResolvedValue('Foo();');
+
+      const exitCode = await cli.run('/project', { dryRun: false, extensions: '.ts' });
+
+      expect(exitCode).toBe(0);
+    });
+
+    it('should return 1 when some imports cannot be resolved', async () => {
+      const plugin = createMockPlugin({
+        findUsedIdentifiers: jest.fn().mockReturnValue([
+          { name: 'Foo', line: 1, column: 0 },
+          { name: 'Unknown', line: 2, column: 0 },
+        ]),
+      });
+      const cli = new AutoImportCli([plugin]);
+
+      mockScan.mockResolvedValue([{ path: '/project/src/app.ts', content: 'code', ext: '.ts' }]);
+      mockResolveImport
+        .mockReturnValueOnce({ name: 'Foo', source: './foo', isDefault: false })
+        .mockReturnValueOnce(null); // Unknown is unresolvable
+
+      const exitCode = await cli.run('/project', { dryRun: false, extensions: '.ts' });
+
+      expect(exitCode).toBe(1);
+    });
+
+    it('should return 0 when no files found to analyze', async () => {
+      const cli = new AutoImportCli([createMockPlugin()]);
+      mockScan.mockResolvedValue([]);
+
+      const exitCode = await cli.run('/project', { extensions: '.ts' });
+
+      expect(exitCode).toBe(0);
     });
   });
 });

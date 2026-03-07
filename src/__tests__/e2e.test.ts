@@ -11,12 +11,28 @@ const E2E_ALIAS_FIXTURE = path.join(ROOT, 'tests', 'e2e-alias-fixture');
 const E2E_MIXED_FIXTURE = path.join(ROOT, 'tests', 'e2e-mixed-fixture');
 const SAME_FILE_EXPORT_FIXTURE = path.join(ROOT, 'tests', 'same-file-export-fixture');
 
+interface RunResult {
+  stdout: string;
+  exitCode: number;
+}
+
 function run(args: string[], options: { cwd?: string } = {}): string {
-  return execFileSync(process.execPath, [BIN, ...args], {
-    encoding: 'utf-8',
-    cwd: options.cwd ?? ROOT,
-    env: { ...process.env, FORCE_COLOR: '0' },
-  });
+  const result = runWithExitCode(args, options);
+  return result.stdout;
+}
+
+function runWithExitCode(args: string[], options: { cwd?: string } = {}): RunResult {
+  try {
+    const stdout = execFileSync(process.execPath, [BIN, ...args], {
+      encoding: 'utf-8',
+      cwd: options.cwd ?? ROOT,
+      env: { ...process.env, FORCE_COLOR: '0' },
+    });
+    return { stdout, exitCode: 0 };
+  } catch (error: unknown) {
+    const e = error as { stdout?: string; stderr?: string; status?: number };
+    return { stdout: (e.stdout ?? '') + (e.stderr ?? ''), exitCode: e.status ?? 1 };
+  }
 }
 
 function cleanReports(dir: string): void {
@@ -453,5 +469,36 @@ describe('E2E: File modification (non-dry-run)', () => {
     expect(aboutAfter).toContain("import { Card } from '../components/Card'");
     // Original code still present
     expect(aboutAfter).toContain('export function AboutPage()');
+  });
+});
+
+describe('E2E: Exit codes', () => {
+  it('should exit 0 when no missing imports found', () => {
+    const result = runWithExitCode(['--dry-run', SAMPLE_PROJECT]);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('should exit 1 in dry-run mode when missing imports found', () => {
+    const result = runWithExitCode(['--dry-run', E2E_FIXTURE]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('Total missing imports: 7');
+  });
+
+  it('should exit 0 when all imports are fixed (non-dry-run)', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'import-pilot-e2e-exit-'));
+    try {
+      const src = path.join(ROOT, 'tests', 'e2e-fixture');
+      const dest = path.join(tmpDir, 'e2e-fixture');
+      fs.cpSync(src, dest, { recursive: true });
+      const result = runWithExitCode([dest]);
+      expect(result.exitCode).toBe(0);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should exit 0 when scanning directory with no matching files', () => {
+    const result = runWithExitCode(['--dry-run', SAME_FILE_EXPORT_FIXTURE]);
+    expect(result.exitCode).toBe(0);
   });
 });

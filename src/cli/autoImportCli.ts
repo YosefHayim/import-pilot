@@ -11,6 +11,10 @@ import { writeReport } from '@/reporter/reportGenerator.js';
 import { detectProjectLanguages } from '@/detector/languageDetector.js';
 import { sortImports } from '@/sorter/importSorter.js';
 
+export const EXIT_CODE_OK = 0;
+export const EXIT_CODE_ISSUES_FOUND = 1;
+export const EXIT_CODE_CONFIG_ERROR = 2;
+
 export interface CliOptions {
   dryRun?: boolean;
   verbose?: boolean;
@@ -42,7 +46,7 @@ export class AutoImportCli {
     this.plugins = plugins ?? getDefaultPlugins();
   }
 
-  async run(directory: string, options: CliOptions = {}): Promise<void> {
+  async run(directory: string, options: CliOptions = {}): Promise<number> {
     const startTime = Date.now();
     console.log(chalk.blue('🔍 Import Pilot'));
     console.log(chalk.gray(`Scanning directory: ${directory}\n`));
@@ -215,6 +219,11 @@ export class AutoImportCli {
         console.log(chalk.green(`\n📝 Report written to ${chalk.cyan(path.relative(projectRoot, reportPath))}`));
       }
     }
+
+    const hasUnresolved = allMissingImports.length > resolvable;
+    if (allMissingImports.length === 0) return EXIT_CODE_OK;
+    if (options.dryRun || hasUnresolved) return EXIT_CODE_ISSUES_FOUND;
+    return EXIT_CODE_OK;
   }
 
   private getLanguageForExt(ext: string): string {
@@ -326,10 +335,11 @@ export function createCli(): Command {
         }
 
         const cli = new AutoImportCli();
-        await cli.run(directory, options);
+        const exitCode = await cli.run(directory, options);
+        process.exitCode = exitCode;
       } catch (error) {
         console.error(chalk.red('\n❌ Error:'), error);
-        process.exit(1);
+        process.exitCode = EXIT_CODE_CONFIG_ERROR;
       }
     });
 
@@ -343,7 +353,7 @@ export function createCli(): Command {
         await runSetupWizard(path.resolve(directory));
       } catch (error) {
         console.error(chalk.red('\n❌ Error:'), error);
-        process.exit(1);
+        process.exitCode = EXIT_CODE_CONFIG_ERROR;
       }
     });
 
