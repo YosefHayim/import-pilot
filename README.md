@@ -2,17 +2,21 @@
 
 <div align="center">
 
-**Stop adding imports by hand. Let the CLI do it.**
-
+[![npm version](https://img.shields.io/npm/v/import-pilot)](https://www.npmjs.com/package/import-pilot)
+[![npm downloads](https://img.shields.io/npm/dm/import-pilot)](https://www.npmjs.com/package/import-pilot)
 [![CI](https://github.com/YosefHayim/import-pilot/workflows/CI%20-%20Test%20&%20Build/badge.svg)](https://github.com/YosefHayim/import-pilot/actions)
-[![npm](https://img.shields.io/npm/v/import-pilot.svg?style=flat-square)](https://www.npmjs.com/package/import-pilot)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Contributors Welcome](https://img.shields.io/badge/contributors-welcome-brightgreen.svg)](https://github.com/YosefHayim/import-pilot/issues)
 
 </div>
 
+## What is it
+
+import-pilot is a zero-config CLI that automatically scans your project, finds every missing import, resolves where it lives, and inserts the correct `import` statement — across React, Vue, Angular, Svelte, Astro, TypeScript, JavaScript, and Python.
+
 ---
 
-## The Problem
+## Why
 
 You write `<Card>` or `formatName()` in your code, but the import is missing. Your editor might catch it — or it might not. In large codebases with hundreds of components, this becomes a constant friction point.
 
@@ -194,15 +198,7 @@ Or let `import-pilot init` set this up for you.
 
 ## Contributing
 
-```bash
-git clone https://github.com/YosefHayim/import-pilot.git
-cd import-pilot
-npm install
-npm run build
-npm test
-```
-
-See [open issues](https://github.com/YosefHayim/import-pilot/issues) for planned features and language support.
+PRs and issues welcome. Fork the repo, create a feature branch, and open a pull request. Run `npm test` before submitting.
 
 ---
 
